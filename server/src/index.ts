@@ -7,7 +7,7 @@ import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import scraperRoutes from './routes/scraper.js';
-import summarizeRoutes from './routes/summarize.js';
+import summarizeRoutes, { EXTRACT_METRICS_PROMPT } from './routes/summarize.js';
 import { readStatus, writeStatus, getDb } from './db.js';
 import { runScrape } from './scraper/index.js';
 import { refreshBenchmarks } from './benchmarks.js';
@@ -87,7 +87,7 @@ app.listen(PORT, () => {
                     body: JSON.stringify({
                       model: 'deepseek-chat',
                       messages: [
-                        { role: 'system', content: 'Извлеки метрики из новости. Верни ТОЛЬКО JSON-массив.' },
+                        { role: 'system', content: EXTRACT_METRICS_PROMPT },
                         { role: 'user', content: `Заголовок: ${article.title}\nТекст: ${article.bodyText.slice(0, 2000)}` },
                       ],
                       max_tokens: 500, temperature: 0.3,
