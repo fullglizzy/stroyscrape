@@ -1,100 +1,114 @@
 import { useState, useEffect } from 'react';
-import { Article, SourceStats, api } from '../api';
+import { SourceStats, api } from '../api';
 import {
-  Sparkles, Key, FileText, Loader2, CheckSquare, Square,
-  Trash2, Copy, ChevronDown, ChevronUp,
+  Sparkles, Key, FileText, Loader2, Check, Trash2, Copy,
+  ChevronDown, ChevronUp, Calendar,
 } from 'lucide-react';
 
 interface Props {
-  articles: Article[];
   sources: SourceStats;
 }
 
-const LS_KEY = 'stroyscrape_deepseek_key';
+interface SummaryResult {
+  sourceId: string;
+  sourceName: string;
+  articleCount: number;
+  dateRange: { from: string; to: string };
+  summary: string;
+  error?: string;
+}
 
-export default function AISummarizer({ articles, sources }: Props) {
+const LS_KEY = 'stroyscrape_deepseek_key';
+const LS_SOURCES = 'stroyscrape_summarize_sources';
+const LS_DAYS = 'stroyscrape_summarize_days';
+
+const DAY_OPTIONS = [
+  { value: 1, label: 'Сегодня' },
+  { value: 3, label: 'За 3 дня' },
+  { value: 7, label: 'За 7 дней' },
+  { value: 14, label: 'За 2 недели' },
+  { value: 30, label: 'За 30 дней' },
+];
+
+export default function AISummarizer({ sources }: Props) {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(LS_KEY) || '');
   const [showKey, setShowKey] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(LS_SOURCES);
+      return saved ? new Set(JSON.parse(saved)) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+  const [daysBack, setDaysBack] = useState(() => {
+    const saved = localStorage.getItem(LS_DAYS);
+    return saved ? parseInt(saved, 10) : 7;
+  });
   const [summarizing, setSummarizing] = useState(false);
-  const [results, setResults] = useState<Map<string, { title: string; summary: string; error?: string }>>(new Map());
-  const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
+  const [results, setResults] = useState<SummaryResult[]>([]);
+  const [expandedResults, setExpandedResults] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
 
-  // Сохраняем ключ в localStorage
+  // Сохраняем в localStorage
   useEffect(() => {
     if (apiKey) localStorage.setItem(LS_KEY, apiKey);
     else localStorage.removeItem(LS_KEY);
   }, [apiKey]);
 
-  // Выбрать / снять все
-  const toggleAll = () => {
-    if (selectedIds.size === articles.length) {
-      setSelectedIds(new Set());
+  useEffect(() => {
+    localStorage.setItem(LS_SOURCES, JSON.stringify([...selectedSources]));
+  }, [selectedSources]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_DAYS, String(daysBack));
+  }, [daysBack]);
+
+  const sourceList = Object.entries(sources).sort((a, b) => b[1].count - a[1].count);
+
+  const toggleSource = (id: string) => {
+    const next = new Set(selectedSources);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setSelectedSources(next);
+  };
+
+  const selectAll = () => {
+    if (selectedSources.size === sourceList.length) {
+      setSelectedSources(new Set());
     } else {
-      setSelectedIds(new Set(articles.map(a => a.id)));
+      setSelectedSources(new Set(sourceList.map(([id]) => id)));
     }
   };
 
-  const toggleArticle = (id: string) => {
-    const next = new Set(selectedIds);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setSelectedIds(next);
-  };
-
-  // Очистить результаты
-  const clearResults = () => {
-    setResults(new Map());
-    setError(null);
-  };
-
-  // Копировать все саммари в буфер
+  const clearResults = () => setResults([]);
   const copyAll = () => {
-    const text = Array.from(results.values())
-      .map(r => `${r.title}\n${r.summary}\n---`)
+    const text = results
+      .map(r => `=== ${r.sourceName} (${r.articleCount} ст.) ===\n${r.summary}\n`)
       .join('\n');
     navigator.clipboard.writeText(text);
   };
 
-  // Запустить суммаризацию
   const handleSummarize = async () => {
-    if (!apiKey.trim()) {
-      setError('Введите API-ключ DeepSeek');
-      return;
-    }
-    if (selectedIds.size === 0) {
-      setError('Выберите статьи для суммаризации');
-      return;
-    }
+    if (!apiKey.trim()) { setError('Введите API-ключ DeepSeek'); return; }
+    if (selectedSources.size === 0) { setError('Выберите хотя бы один источник'); return; }
 
     setSummarizing(true);
     setError(null);
-    setProgress({ done: 0, total: selectedIds.size });
+    setResults([]);
 
     try {
-      const ids = Array.from(selectedIds);
-      const res = await api.summarizeBatch(ids, apiKey.trim(), 300);
-
-      const newResults = new Map(results);
-      for (const r of res.results) {
-        newResults.set(r.id, { title: r.title, summary: r.summary, error: r.error });
-        setProgress(p => ({ ...p, done: p.done + 1 }));
-      }
-      setResults(newResults);
+      const res = await api.summarizeSources(apiKey.trim(), {
+        sourceIds: Array.from(selectedSources),
+        daysBack,
+        maxLength: 400,
+      });
+      setResults(res.summaries);
+      // Авто-раскрываем все результаты
+      setExpandedResults(new Set(res.summaries.map((_, i) => i)));
     } catch (err: any) {
       setError(err.message);
     } finally {
       setSummarizing(false);
     }
   };
-
-  // Группировка статей по источнику
-  const articlesBySource: Record<string, Article[]> = {};
-  for (const a of articles) {
-    if (!articlesBySource[a.source]) articlesBySource[a.source] = [];
-    articlesBySource[a.source].push(a);
-  }
 
   return (
     <div className="space-y-6">
@@ -105,7 +119,7 @@ export default function AISummarizer({ articles, sources }: Props) {
           <h2 className="font-semibold text-gray-800">DeepSeek API</h2>
           {apiKey && (
             <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-              ключ сохранён
+              сохранён
             </span>
           )}
         </div>
@@ -124,93 +138,92 @@ export default function AISummarizer({ articles, sources }: Props) {
             {showKey ? 'Скрыть' : 'Показать'}
           </button>
         </div>
-        <p className="text-xs text-gray-400 mt-2">
-          Ключ хранится в localStorage браузера. Запросы идут через сервер.
-        </p>
       </div>
 
-      {/* Выбор статей + кнопка */}
+      {/* Выбор источников + периода */}
       <div className="bg-white rounded-xl border shadow-sm p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Sparkles className="w-5 h-5 text-purple-500" />
-            <h2 className="font-semibold text-gray-800">
-              Выбрано: {selectedIds.size} из {articles.length}
-            </h2>
+        <div className="flex items-center gap-2 mb-4">
+          <Sparkles className="w-5 h-5 text-purple-500" />
+          <h2 className="font-semibold text-gray-800">Параметры сводки</h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Выбор источников */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-600">
+                Источники ({selectedSources.size})
+              </span>
+              <button onClick={selectAll} className="text-xs text-blue-600 hover:text-blue-800">
+                {selectedSources.size === sourceList.length ? 'Снять всё' : 'Выбрать всё'}
+              </button>
+            </div>
+            <div className="space-y-0.5 max-h-48 overflow-y-auto">
+              {sourceList.map(([id, info]) => (
+                <button
+                  key={id}
+                  onClick={() => toggleSource(id)}
+                  className={`
+                    w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-left text-sm transition-colors
+                    ${selectedSources.has(id)
+                      ? 'bg-purple-50 text-purple-700 font-medium'
+                      : 'text-gray-600 hover:bg-gray-50'
+                    }
+                  `}
+                >
+                  <div className={`
+                    w-4 h-4 rounded border flex items-center justify-center flex-shrink-0
+                    ${selectedSources.has(id) ? 'bg-purple-600 border-purple-600' : 'border-gray-300'}
+                  `}>
+                    {selectedSources.has(id) && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                  <span className="truncate flex-1">{info.name}</span>
+                  <span className="text-xs text-gray-400">({info.count})</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleAll}
-              className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
-            >
-              {selectedIds.size === articles.length ? 'Снять всё' : 'Выбрать всё'}
-            </button>
-            {results.size > 0 && (
-              <>
+
+          {/* Выбор периода */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              <span className="text-sm font-medium text-gray-600">Период выборки</span>
+            </div>
+            <div className="space-y-1">
+              {DAY_OPTIONS.map(opt => (
                 <button
-                  onClick={copyAll}
-                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                  key={opt.value}
+                  onClick={() => setDaysBack(opt.value)}
+                  className={`
+                    w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors
+                    ${daysBack === opt.value
+                      ? 'bg-purple-50 text-purple-700 font-medium'
+                      : 'text-gray-600 hover:bg-gray-50'
+                    }
+                  `}
                 >
-                  <Copy className="w-3 h-3" />
-                  Копировать
+                  <div className={`
+                    w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0
+                    ${daysBack === opt.value ? 'border-purple-600' : 'border-gray-300'}
+                  `}>
+                    {daysBack === opt.value && <div className="w-2 h-2 rounded-full bg-purple-600" />}
+                  </div>
+                  {opt.label}
                 </button>
-                <button
-                  onClick={clearResults}
-                  className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 transition-colors"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  Очистить
-                </button>
-              </>
-            )}
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Список статей с чекбоксами */}
-        <div className="max-h-96 overflow-y-auto space-y-3 pr-1">
-          {Object.entries(articlesBySource).map(([sourceId, sourceArticles]) => {
-            const info = sources[sourceId];
-            return (
-              <div key={sourceId}>
-                <div className="text-xs font-medium text-gray-500 mb-1.5 sticky top-0 bg-white py-1">
-                  {info?.name || sourceId} ({sourceArticles.length})
-                </div>
-                {sourceArticles.map(article => (
-                  <label
-                    key={article.id}
-                    className={`
-                      flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors
-                      ${selectedIds.has(article.id) ? 'bg-purple-50' : 'hover:bg-gray-50'}
-                      ${results.has(article.id) ? 'border-l-2 border-green-400 pl-1.5' : ''}
-                    `}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(article.id)}
-                      onChange={() => toggleArticle(article.id)}
-                      className="mt-0.5 w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 flex-shrink-0"
-                    />
-                    <div>
-                      <span className="text-sm text-gray-800">{article.title}</span>
-                      {results.has(article.id) && (
-                        <span className="ml-2 text-xs text-green-600">✓</span>
-                      )}
-                    </div>
-                  </label>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Кнопка суммаризации */}
-        <div className="mt-4 flex items-center gap-3">
+        {/* Кнопка запуска */}
+        <div className="mt-5 flex items-center gap-3">
           <button
             onClick={handleSummarize}
-            disabled={summarizing || selectedIds.size === 0}
+            disabled={summarizing || selectedSources.size === 0}
             className={`
               flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm transition-all
-              ${summarizing || selectedIds.size === 0
+              ${summarizing || selectedSources.size === 0
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : 'bg-purple-600 text-white hover:bg-purple-700 active:scale-95 shadow-sm'
               }
@@ -222,93 +235,102 @@ export default function AISummarizer({ articles, sources }: Props) {
               <Sparkles className="w-4 h-4" />
             )}
             {summarizing
-              ? `Суммаризация... ${progress.done}/${progress.total}`
-              : `Суммаризировать (${selectedIds.size})`
+              ? `Суммаризация ${selectedSources.size} источников...`
+              : `Суммаризировать ${selectedSources.size} источников за ${daysBack} дн.`
             }
           </button>
+
+          {results.length > 0 && (
+            <>
+              <button
+                onClick={copyAll}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Копировать всё
+              </button>
+              <button
+                onClick={clearResults}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs text-red-500 hover:text-red-700 border border-red-200 rounded-lg transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Очистить
+              </button>
+            </>
+          )}
         </div>
 
         {error && (
-          <div className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg p-3">
-            {error}
-          </div>
+          <div className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</div>
         )}
       </div>
 
       {/* Результаты */}
-      {results.size > 0 && (
-        <div className="bg-white rounded-xl border shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <FileText className="w-5 h-5 text-green-500" />
-            <h2 className="font-semibold text-gray-800">
-              Результаты ({results.size})
-            </h2>
-          </div>
+      {results.length > 0 && (
+        <div className="space-y-3">
+          {results.map((result, idx) => {
+            const isExpanded = expandedResults.has(idx);
 
-          <div className="space-y-3">
-            {Array.from(results.entries()).map(([id, result]) => {
-              const isExpanded = expandedResults.has(id);
-              const article = articles.find(a => a.id === id);
-              const sourceName = article ? sources[article.source]?.name || article.sourceName : '';
-
-              return (
-                <div
-                  key={id}
-                  className={`border rounded-lg overflow-hidden transition-colors ${
-                    result.error ? 'border-red-200 bg-red-50' : 'border-gray-200'
-                  }`}
+            return (
+              <div
+                key={result.sourceId}
+                className={`bg-white rounded-xl border shadow-sm overflow-hidden ${
+                  result.error ? 'border-red-200' : 'border-gray-200'
+                }`}
+              >
+                <button
+                  onClick={() => {
+                    const next = new Set(expandedResults);
+                    isExpanded ? next.delete(idx) : next.add(idx);
+                    setExpandedResults(next);
+                  }}
+                  className="w-full flex items-start gap-3 p-5 text-left hover:bg-gray-50 transition-colors"
                 >
-                  <button
-                    onClick={() => {
-                      const next = new Set(expandedResults);
-                      isExpanded ? next.delete(id) : next.add(id);
-                      setExpandedResults(next);
-                    }}
-                    className="w-full flex items-start gap-3 p-4 text-left hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                          {sourceName}
-                        </span>
-                        {result.error && (
-                          <span className="text-xs text-red-500">Ошибка</span>
-                        )}
-                        {!result.error && !isExpanded && (
-                          <span className="text-xs text-gray-400">Нажмите чтобы развернуть</span>
-                        )}
-                      </div>
-                      <h3 className="text-sm font-medium text-gray-800 leading-snug">
-                        {result.title}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <FileText className="w-4 h-4 text-gray-400" />
+                      <h3 className="text-base font-semibold text-gray-800">
+                        {result.sourceName}
                       </h3>
-                      {!result.error && !isExpanded && (
-                        <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                          {result.summary}
-                        </p>
-                      )}
-                      {!result.error && isExpanded && (
-                        <div className="text-sm text-gray-700 mt-2 whitespace-pre-line leading-relaxed">
-                          {result.summary}
-                        </div>
-                      )}
+                      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                        {result.articleCount} статей
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {result.dateRange.from} – {result.dateRange.to}
+                      </span>
                       {result.error && (
-                        <p className="text-xs text-red-500 mt-1">{result.error}</p>
+                        <span className="text-xs text-red-500 bg-red-50 px-1.5 py-0.5 rounded">
+                          Ошибка
+                        </span>
                       )}
                     </div>
-                    {!result.error && (
-                      <div className="flex-shrink-0 mt-0.5">
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-gray-400" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-gray-400" />
-                        )}
+                    {!result.error && !isExpanded && (
+                      <p className="text-sm text-gray-500 line-clamp-3 mt-1">
+                        {result.summary}
+                      </p>
+                    )}
+                    {!result.error && isExpanded && (
+                      <div className="text-sm text-gray-700 mt-2 whitespace-pre-line leading-relaxed">
+                        {result.summary}
                       </div>
                     )}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    {result.error && (
+                      <p className="text-xs text-red-500 mt-1">{result.error}</p>
+                    )}
+                  </div>
+                  {!result.error && (
+                    <div className="flex-shrink-0 mt-1">
+                      {isExpanded ? (
+                        <ChevronUp className="w-4 h-4 text-gray-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-gray-400" />
+                      )}
+                    </div>
+                  )}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

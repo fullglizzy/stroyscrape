@@ -175,7 +175,7 @@ export default function App() {
           </>
         ) : (
           /* AI Суммаризация */
-          <AISummarizer articles={articles} sources={sources} />
+          <AISummarizer sources={sources} />
         )}
       </main>
 

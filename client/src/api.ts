@@ -76,22 +76,24 @@ export const api = {
   resetScrape: () =>
     fetchJSON<{ ok: boolean; message: string }>('/scrape/reset', { method: 'POST' }),
 
-  /** Суммаризировать текст */
-  summarize: (text: string, apiKey: string, maxLength?: number) =>
-    fetchJSON<{ summary: string }>('/summarize', {
+  /** Суммаризация по источникам за период */
+  summarizeSources: (
+    apiKey: string,
+    params: { sourceIds?: string[]; daysBack: number; maxLength?: number }
+  ) =>
+    fetchJSON<{
+      summaries: {
+        sourceId: string;
+        sourceName: string;
+        articleCount: number;
+        dateRange: { from: string; to: string };
+        summary: string;
+        error?: string;
+      }[];
+    }>('/summarize/sources', {
       method: 'POST',
-      body: JSON.stringify({ text, apiKey, maxLength }),
+      body: JSON.stringify({ apiKey, ...params }),
     }),
-
-  /** Суммаризировать несколько статей */
-  summarizeBatch: (articleIds: string[], apiKey: string, maxLength?: number) =>
-    fetchJSON<{ results: { id: string; title: string; summary: string; error?: string }[] }>(
-      '/summarize/batch',
-      {
-        method: 'POST',
-        body: JSON.stringify({ articleIds, apiKey, maxLength }),
-      }
-    ),
 
   /** Статус парсинга */
   getStatus: () => fetchJSON<ScrapeStatus>('/scrape/status'),
