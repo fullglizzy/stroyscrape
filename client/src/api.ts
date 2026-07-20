@@ -76,6 +76,23 @@ export const api = {
   resetScrape: () =>
     fetchJSON<{ ok: boolean; message: string }>('/scrape/reset', { method: 'POST' }),
 
+  /** Суммаризировать текст */
+  summarize: (text: string, apiKey: string, maxLength?: number) =>
+    fetchJSON<{ summary: string }>('/summarize', {
+      method: 'POST',
+      body: JSON.stringify({ text, apiKey, maxLength }),
+    }),
+
+  /** Суммаризировать несколько статей */
+  summarizeBatch: (articleIds: string[], apiKey: string, maxLength?: number) =>
+    fetchJSON<{ results: { id: string; title: string; summary: string; error?: string }[] }>(
+      '/summarize/batch',
+      {
+        method: 'POST',
+        body: JSON.stringify({ articleIds, apiKey, maxLength }),
+      }
+    ),
+
   /** Статус парсинга */
   getStatus: () => fetchJSON<ScrapeStatus>('/scrape/status'),
 

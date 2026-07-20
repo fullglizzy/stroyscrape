@@ -7,6 +7,7 @@ import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import scraperRoutes from './routes/scraper.js';
+import summarizeRoutes from './routes/summarize.js';
 import { readStatus, writeStatus } from './scraper/output.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,6 +22,7 @@ app.use(express.json());
 
 // API-роуты
 app.use('/api', scraperRoutes);
+app.use('/api', summarizeRoutes);
 
 // Раздача React (production) или прокси (dev)
 const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
