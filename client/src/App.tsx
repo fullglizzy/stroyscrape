@@ -186,7 +186,7 @@ function AppContent() {
           </div>
         ) : (
           <div className="animate-fade-in">
-            <AnalyticsDashboard sources={sources} analytics={analytics} />
+            <AnalyticsDashboard sources={sources} analytics={analytics} onNavigate={(t) => setTab(t as Tab)} />
           </div>
         )}
       </main>

@@ -3,7 +3,7 @@ import { SourceStats } from '../api';
 import {
   TrendingUp, TrendingDown, BarChart3, Loader2, Sparkles, Zap, Target,
   Activity, Brain, HelpCircle, SlidersHorizontal, AlertTriangle,
-  Bell, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink, Download,
+  Bell, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink, Download, Newspaper,
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import { useToast } from '../ToastContext';
@@ -22,12 +22,13 @@ interface Props {
     startForecast: (apiKey: string, days: number) => Promise<void>;
     setForecast: (f: string | null) => void;
   };
+  onNavigate?: (tab: string) => void;
 }
 
 const PERIODS = [1, 3, 7, 14, 30, 90, 180, 365];
 const PL: Record<number, string> = { 1: '24ч', 3: '3д', 7: '7д', 14: '14д', 30: '30д', 90: '90д', 180: '6м', 365: 'Год' };
 
-export default function AnalyticsDashboard({ sources, analytics }: Props) {
+export default function AnalyticsDashboard({ sources, analytics, onNavigate }: Props) {
   const { metrics, forecast, extracting, forecasting, extractProgress, forecastProgress,
     loadMetrics, startExtraction, startForecast, setForecast } = analytics;
 
@@ -69,6 +70,7 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
     bySeg[m.segment][m.direction as 'up' | 'down' | 'flat']++;
   }
   const total = metrics.length;
+  const totalArticles = Object.values(sources).reduce((s, info) => s + info.count, 0);
 
   // Filter for focus mode: only metrics with significant recent changes
   const getLatestValue = (items: any[]) => {
@@ -171,7 +173,12 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
               <BarChart3 className="w-5 h-5" /></div>
             <div><h2 className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>Аналитика рынка</h2>
               <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                {total > 0 ? `${total} метрик • ${Object.keys(metricGroups).length} показателей` : 'Готов к анализу'}</p></div>
+                {total > 0
+                  ? `${total} метрик • ${Object.keys(metricGroups).length} показателей`
+                  : totalArticles > 0
+                    ? `${totalArticles} статей готово к анализу`
+                    : 'Нет данных — запустите парсинг'}
+              </p></div>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {PERIODS.map(d => (
@@ -245,12 +252,61 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
 
       {/* ============ EMPTY STATE ============ */}
       {metrics.length === 0 && !extracting && (
-        <EmptyState icon={<BarChart3 className="w-16 h-16" />} title="Аналитика рынка"
-          description="AI проанализирует статьи, извлечёт метрики и построит тренды с интерпретацией."
-          action={<button onClick={handleExtract} className="btn text-sm" style={{ background: 'var(--color-primary)', color: 'white' }}>
-            <Zap className="w-4 h-4" /> Извлечь метрики</button>} />)}
+        <div className="card p-6 md:p-8 text-center animate-fade-in">
+          <div className="mx-auto mb-5 opacity-30"><BarChart3 className="w-16 h-16" /></div>
+          <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
+            {totalArticles === 0 ? 'Нет данных для анализа' : 'Метрики не извлечены'}
+          </h3>
+          <p className="text-sm mb-6 max-w-md mx-auto" style={{ color: 'var(--color-text-secondary)' }}>
+            {totalArticles === 0
+              ? 'Сначала нужно собрать новости с помощью парсера. Перейдите на вкладку «Новости» и запустите парсинг.'
+              : `В базе ${totalArticles} статей. AI прочитает каждую и извлечёт структурированные метрики: ставки, цены, объёмы ввода, спрос — с единицами измерения и трендами.`}
+          </p>
+          {totalArticles === 0 ? (
+            <button onClick={() => onNavigate?.('news')}
+              className="btn text-sm" style={{ background: 'var(--color-primary)', color: 'white' }}>
+              <Newspaper className="w-4 h-4" /> Перейти к парсингу
+            </button>
+          ) : (
+            <div className="space-y-4">
+              {/* Flow stepper */}
+              <div className="flex items-center justify-center gap-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
+                  ✓ {totalArticles} статей</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>→</span>
+                <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-primary-bg)', color: 'var(--color-primary)' }}>
+                  2. Извлечь метрики</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>→</span>
+                <span className="px-2 py-1 rounded" style={{ color: 'var(--color-text-muted)' }}>3. Прогноз</span>
+              </div>
+              <button onClick={handleExtract} className="btn text-sm" style={{ background: 'var(--color-primary)', color: 'white' }}>
+                <Zap className="w-4 h-4" /> Извлечь метрики из {totalArticles} статей
+              </button>
+              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                DeepSeek AI проанализирует каждую статью и выделит: название метрики, значение, единицу измерения, тренд (▲/▼), сегмент рынка и регион.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {metrics.length > 0 && (<>
+        {/* Flow stepper (when metrics exist) */}
+        {total > 0 && (
+          <div className="flex items-center justify-center gap-2 text-xs py-2 animate-fade-in">
+            <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
+              ✓ {totalArticles} статей</span>
+            <span style={{ color: 'var(--color-text-muted)' }}>→</span>
+            <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
+              ✓ {total} метрик</span>
+            <span style={{ color: 'var(--color-text-muted)' }}>→</span>
+            <span className={`px-2 py-1 rounded ${forecast ? '' : ''}`}
+              style={{ background: forecast ? 'var(--color-success-bg)' : 'var(--color-bg)', color: forecast ? 'var(--color-success)' : 'var(--color-text-muted)' }}>
+              {forecast ? '✓ Прогноз готов' : '3. Прогноз'}
+            </span>
+          </div>
+        )}
+
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
           <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Растёт" value={`${total>0?Math.round(counts.up/total*100):0}%`} sub={`${counts.up} метрик`} color="var(--color-success)" />
