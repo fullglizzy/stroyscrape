@@ -58,12 +58,14 @@ function initTables(): void {
       confidence REAL DEFAULT 0.5,
       raw_context TEXT,
       extracted_at TEXT NOT NULL,
-      UNIQUE(article_id, metric_name)
-    );
+	      UNIQUE(article_id, metric_name)
+	    );
+	  `);
 
-    // Migration: add unit column if missing
-    try { d.exec('ALTER TABLE metrics ADD COLUMN unit TEXT DEFAULT \'\''); } catch { /* already exists */ }
+	  // Migration: add unit column if missing
+	  try { d.exec('ALTER TABLE metrics ADD COLUMN unit TEXT DEFAULT \'\''); } catch { /* already exists */ }
 
+	  d.exec(`
     CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(metric_name);
     CREATE INDEX IF NOT EXISTS idx_metrics_article ON metrics(article_id);
 
