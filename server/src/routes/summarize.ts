@@ -3,7 +3,7 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { readArticles, readMetrics, saveReport, writeMetrics, getMetricsTrend, readReports, Metric } from '../db.js';
+import { readArticles, readMetrics, saveReport, writeMetrics, getMetricsTrend, readReports, readArticleById, Metric } from '../db.js';
 import { readBenchmarks, refreshBenchmarks } from '../benchmarks.js';
 
 const router = Router();
@@ -230,7 +230,7 @@ router.post('/forecast', async (req: Request, res: Response) => {
     try {
       const days = daysBack || 7;
       updateJob(jobId, { done: 1, currentItem: 'Сбор исторических метрик...' });
-      const allMetrics = readMetrics(30);
+      const allMetrics = readMetrics(Math.max(30, days)); // не менее 30 дней, но если выбран год — год
       const { articles } = readArticles(undefined, days, 200, 0);
 
       updateJob(jobId, { done: 2, currentItem: 'Формирование контекста...' });
@@ -299,14 +299,23 @@ router.get('/metrics/:name/sparkline', (req: Request, res: Response) => {
 
 // POST /api/metrics/interpret — AI объясняет причину изменения метрики
 router.post('/metrics/interpret', async (req: Request, res: Response) => {
-  const { apiKey, metricName, metricValue, direction } = req.body as any;
+  const { apiKey, metricName, metricValue, direction, articleId } = req.body as any;
   if (!apiKey || !metricName) { res.status(400).json({ error: 'apiKey и metricName обязательны' }); return; }
 
-  // Ищем связанные статьи
-  const { articles } = readArticles(undefined, 7, 20, 0);
-  const relatedNews = articles
-    .filter((a: any) => a.bodyText.toLowerCase().includes(metricName.toLowerCase().slice(0, 5)))
-    .slice(0, 5);
+  // Ищем связанные статьи: сначала по article_id из метрики, потом по ключевым словам
+  let relatedNews: any[] = [];
+  if (articleId) {
+    const article = readArticleById(articleId);
+    if (article) relatedNews = [article];
+  }
+  if (relatedNews.length === 0) {
+    // Fallback: поиск по полному названию метрики (первые 2 слова)
+    const keywords = metricName.toLowerCase().split(' ').slice(0, 2).join(' ');
+    const { articles } = readArticles(undefined, 7, 20, 0);
+    relatedNews = articles.filter((a: any) =>
+      a.bodyText.toLowerCase().includes(keywords) || a.title.toLowerCase().includes(keywords)
+    ).slice(0, 5);
+  }
 
   const prompt = `Метрика "${metricName}" сейчас: ${metricValue} (${direction === 'up' ? 'растёт' : direction === 'down' ? 'падает' : 'стабильна'}).
 Связанные новости:\n${relatedNews.map((a: any, i: number) => `${i + 1}. ${a.title}`).join('\n') || 'Нет новостей'}
@@ -325,7 +334,7 @@ router.post('/forecast/whatif', async (req: Request, res: Response) => {
   const { apiKey, adjustments } = req.body as any;
   if (!apiKey) { res.status(400).json({ error: 'apiKey обязателен' }); return; }
 
-  const allMetrics = readMetrics(30);
+  const allMetrics = readMetrics(90); // what-if: 90 дней истории для контекста
   const { articles } = readArticles(undefined, 7, 200, 0);
 
   const historyText = Object.entries(

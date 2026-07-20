@@ -106,13 +106,13 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
     if (!apiKey) { toast.error('Введите API-ключ'); return; }
     try { await startForecast(apiKey, period); } catch (e: any) { toast.error(e.message); }
   };
-  const handleInterpret = async (metricName: string, value: string, direction: string) => {
+  const handleInterpret = async (metricName: string, value: string, direction: string, articleId?: string) => {
     if (!apiKey) { toast.error('Введите API-ключ'); return; }
     setInterpreting(metricName);
     try {
       const r = await fetch('/api/metrics/interpret', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, metricName, metricValue: value, direction }),
+        body: JSON.stringify({ apiKey, metricName, metricValue: value, direction, articleId }),
       });
       const d = await r.json();
       setInterpretations(prev => ({ ...prev, [metricName]: d.interpretation || 'Нет данных' }));
@@ -154,7 +154,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
   // Sparkline loader
   useEffect(() => {
     if (metrics.length === 0) return;
-    for (const [name] of Object.entries(metricGroups).slice(0, 10)) {
+    for (const [name] of Object.entries(metricGroups).slice(0, 30)) {
       fetch(`/api/metrics/${encodeURIComponent(name)}/sparkline?weeks=8`)
         .then(r => r.json()).then(d => setSparklines(prev => ({ ...prev, [name]: d }))).catch(() => {});
     }
@@ -557,7 +557,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
                       </td>
                       <td className="py-2 px-2 hidden md:table-cell" style={{ color: 'var(--color-text-muted)' }}>{segLabels[items[0]?.segment] || items[0]?.segment}</td>
                       <td className="py-2 px-2 text-center">
-                        <button onClick={() => interp ? setInterpretations(prev => { const n={...prev}; delete n[name]; return n; }) : handleInterpret(name, String(latest), direction)}
+                        <button onClick={() => interp ? setInterpretations(prev => { const n={...prev}; delete n[name]; return n; }) : handleInterpret(name, String(latest), direction, items[0]?.articleId)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all border"
                           style={{
                             color: interp ? 'var(--color-success)' : 'var(--color-primary)',

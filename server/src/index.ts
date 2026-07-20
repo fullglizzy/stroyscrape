@@ -62,17 +62,59 @@ app.listen(PORT, () => {
     cron.schedule('0 */3 * * *', async () => {
       console.log('[cron] Запуск автоматического парсинга...');
       const status = readStatus();
-      if (status.running) {
-        console.log('[cron] Парсинг уже запущен, пропускаю');
-        return;
-      }
+      if (status.running) { console.log('[cron] Парсинг уже запущен, пропускаю'); return; }
       try {
         const daysBack = parseInt(process.env.DAYS_BACK || '7', 10);
         await runScrape(daysBack);
         console.log('[cron] Автопарсинг завершён');
-      } catch (err: any) {
-        console.error('[cron] Ошибка автопарсинга:', err.message);
-      }
+
+        // Авто-экстракция метрик если есть API-ключ
+        const apiKey = process.env.DEEPSEEK_API_KEY;
+        if (apiKey) {
+          console.log('[cron] Запуск авто-экстракции метрик...');
+          try {
+            const { readArticles } = await import('./db.js');
+            const { articles } = readArticles(undefined, daysBack, 500, 0);
+            if (articles.length > 0) {
+              // Простой вызов: прогоняем статьи через AI
+              const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
+              const { writeMetrics } = await import('./db.js');
+              const metrics: any[] = [];
+              for (const article of articles.slice(0, 50)) { // первые 50 статей
+                try {
+                  const res = await fetch(DEEPSEEK_API, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                    body: JSON.stringify({
+                      model: 'deepseek-chat',
+                      messages: [
+                        { role: 'system', content: 'Извлеки метрики из новости. Верни ТОЛЬКО JSON-массив.' },
+                        { role: 'user', content: `Заголовок: ${article.title}\nТекст: ${article.bodyText.slice(0, 2000)}` },
+                      ],
+                      max_tokens: 500, temperature: 0.3,
+                    }),
+                  });
+                  const data = await res.json() as any;
+                  const raw = data.choices?.[0]?.message?.content || '';
+                  const jsonMatch = raw.match(/\[[\s\S]*\]/);
+                  if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    for (const m of parsed) {
+                      metrics.push({
+                        articleId: article.id, metricName: m.metric_name, metricValue: String(m.metric_value || ''),
+                        unit: m.unit || '', direction: m.direction || 'unknown', segment: m.segment || 'другое',
+                        region: m.region || 'РФ', confidence: m.confidence || 0.5,
+                        rawContext: raw.slice(0, 500), extractedAt: new Date().toISOString(),
+                      });
+                    }
+                  }
+                } catch { /* skip failed */ }
+                await new Promise(r => setTimeout(r, 500));
+              }
+              if (metrics.length > 0) { writeMetrics(metrics); console.log(`[cron] Авто-метрики: ${metrics.length}`); }
+            }
+          } catch (e: any) { console.error('[cron] Ошибка авто-метрик:', e.message); }
+        }
+      } catch (err: any) { console.error('[cron] Ошибка автопарсинга:', err.message); }
     });
     console.log('⏰ Автопарсинг: каждые 3 часа');
   }
