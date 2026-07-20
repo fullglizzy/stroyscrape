@@ -3,7 +3,7 @@ import { SourceStats } from '../api';
 import {
   TrendingUp, TrendingDown, BarChart3, Loader2, Sparkles, Zap, Target,
   Activity, Brain, HelpCircle, SlidersHorizontal, AlertTriangle,
-  Bell, Eye, EyeOff, ChevronDown, ChevronUp,
+  Bell, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink,
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import { useToast } from '../ToastContext';
@@ -196,8 +196,18 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                   : <TrendingDown className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-danger)' }} />}
                 <div className="min-w-0">
                   <div className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{a.metric}: {a.value}</div>
-                  {a.relatedNews && <div className="text-xs truncate mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                    📰 {a.relatedNews.title.slice(0, 80)}</div>}
+                  {a.relatedNews ? (
+                    <a href={a.relatedNews.url} target="_blank" rel="noopener noreferrer"
+                      className="text-xs mt-0.5 block hover:underline truncate"
+                      style={{ color: 'var(--color-primary)' }}>
+                      📰 {a.relatedNews.title.slice(0, 100)}
+                      <span className="ml-1 opacity-60">({a.relatedNews.source})</span>
+                    </a>
+                  ) : (
+                    <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--color-text-muted)' }}>
+                      Нет связанных новостей
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
