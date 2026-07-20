@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/articles.json
+data/status.json
+.env.local
+*.log
+.DS_Store
+.zcode/
+*.tsbuildinfo
