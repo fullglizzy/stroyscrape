@@ -10,6 +10,7 @@ import SourceFilter from './components/SourceFilter';
 import ArticleList from './components/ArticleList';
 import AISummarizer from './components/AISummarizer';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
+import { useAnalytics } from './useAnalytics';
 
 type Tab = 'news' | 'ai' | 'analytics';
 
@@ -23,6 +24,7 @@ function AppContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const toast = useToast();
+  const analytics = useAnalytics();
 
   const loadData = useCallback(async () => {
     try {
@@ -184,7 +186,7 @@ function AppContent() {
           </div>
         ) : (
           <div className="animate-fade-in">
-            <AnalyticsDashboard sources={sources} />
+            <AnalyticsDashboard sources={sources} analytics={analytics} />
           </div>
         )}
       </main>

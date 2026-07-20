@@ -8,6 +8,36 @@ import { readArticles, readMetrics, saveReport, writeMetrics, getMetricsTrend, r
 const router = Router();
 const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
 
+// ==================== Progress tracking ====================
+
+interface JobProgress {
+  id: string;
+  type: 'metrics' | 'forecast';
+  status: 'running' | 'done' | 'error';
+  total: number;
+  done: number;
+  currentItem: string;
+  startedAt: string;
+  error?: string;
+}
+
+const jobs = new Map<string, JobProgress>();
+
+function createJob(type: 'metrics' | 'forecast', total: number): string {
+  const id = `${type}_${Date.now()}`;
+  jobs.set(id, { id, type, status: 'running', total, done: 0, currentItem: '', startedAt: new Date().toISOString() });
+  return id;
+}
+
+function updateJob(id: string, update: Partial<JobProgress>) {
+  const job = jobs.get(id);
+  if (job) Object.assign(job, update);
+  // Очистка старых джобов (>5 мин)
+  for (const [k, v] of jobs) {
+    if (Date.now() - new Date(v.startedAt).getTime() > 300000) jobs.delete(k);
+  }
+}
+
 // ==================== Промпты ====================
 
 const SUMMARIZE_SOURCES_PROMPT = `Ты — профессиональный аналитик строительной отрасли России.
@@ -108,51 +138,67 @@ router.post('/summarize/sources', async (req: Request, res: Response) => {
   res.json({ summaries });
 });
 
-// POST /api/metrics/extract — извлечение метрик из статей через AI
+// POST /api/metrics/extract — старт извлечения метрик (асинхронно, прогресс через /status)
 router.post('/metrics/extract', async (req: Request, res: Response) => {
   const { apiKey, sourceIds, daysBack } = req.body as any;
   if (!apiKey) { res.status(400).json({ error: 'apiKey обязателен' }); return; }
 
   const days = daysBack || 7;
-  const { articles } = readArticles(undefined, days, 200, 0);
+  const { articles } = readArticles(undefined, days, 500, 0);
   const filtered = sourceIds?.length ? articles.filter((a: any) => sourceIds.includes(a.source)) : articles;
 
-  const metrics: Metric[] = [];
-  const errors: string[] = [];
+  if (filtered.length === 0) {
+    res.json({ jobId: '', message: 'Нет статей за выбранный период' });
+    return;
+  }
 
-  for (const article of filtered) {
-    try {
-      const prompt = `Заголовок: ${article.title}\n\nТекст: ${article.bodyText.slice(0, 2000)}`;
-      const raw = await callDeepSeek(apiKey, EXTRACT_METRICS_PROMPT, prompt, 500);
-      // Парсим JSON из ответа
-      const jsonMatch = raw.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        for (const m of parsed) {
-          metrics.push({
-            articleId: article.id,
-            metricName: m.metric_name,
-            metricValue: String(m.metric_value || ''),
-            direction: m.direction || 'unknown',
-            segment: m.segment || 'другое',
-            region: m.region || 'РФ',
-            confidence: m.confidence || 0.5,
-            rawContext: raw.slice(0, 500),
-            extractedAt: new Date().toISOString(),
-          });
+  const jobId = createJob('metrics', filtered.length);
+  res.json({ jobId, total: filtered.length, message: `Извлечение метрик запущено (${filtered.length} статей)` });
+
+  // Запускаем асинхронно
+  (async () => {
+    const metrics: Metric[] = [];
+    for (let i = 0; i < filtered.length; i++) {
+      const article = filtered[i];
+      updateJob(jobId, { done: i, currentItem: article.title.slice(0, 80) });
+      try {
+        const prompt = `Заголовок: ${article.title}\n\nТекст: ${article.bodyText.slice(0, 2000)}`;
+        const raw = await callDeepSeek(apiKey, EXTRACT_METRICS_PROMPT, prompt, 400);
+        const jsonMatch = raw.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          for (const m of parsed) {
+            metrics.push({
+              articleId: article.id, metricName: m.metric_name, metricValue: String(m.metric_value || ''),
+              direction: m.direction || 'unknown', segment: m.segment || 'другое',
+              region: m.region || 'РФ', confidence: m.confidence || 0.5,
+              rawContext: raw.slice(0, 500), extractedAt: new Date().toISOString(),
+            });
+          }
         }
+      } catch (err: any) {
+        // Продолжаем несмотря на ошибки
       }
-    } catch (err: any) {
-      errors.push(`${article.id}: ${err.message}`);
+      await new Promise(r => setTimeout(r, 250));
     }
-    await new Promise(r => setTimeout(r, 300));
-  }
+    if (metrics.length > 0) writeMetrics(metrics);
+    updateJob(jobId, { status: 'done', done: filtered.length, currentItem: `Готово: ${metrics.length} метрик` });
+  })().catch(err => {
+    updateJob(jobId, { status: 'error', error: err.message });
+  });
+});
 
-  if (metrics.length > 0) {
-    writeMetrics(metrics);
+// GET /api/metrics/extract/status — прогресс извлечения
+router.get('/metrics/extract/status', (req: Request, res: Response) => {
+  const { jobId } = req.query;
+  const job = jobId ? jobs.get(String(jobId)) : null;
+  if (!job) {
+    // Вернуть последнюю активную джобу
+    const running = Array.from(jobs.values()).find(j => j.status === 'running');
+    res.json({ job: running || null });
+    return;
   }
-
-  res.json({ extracted: metrics.length, errors });
+  res.json({ job });
 });
 
 // GET /api/metrics — получить извлечённые метрики
@@ -169,46 +215,51 @@ router.get('/metrics/trend/:name', (req: Request, res: Response) => {
   res.json({ metric: req.params.name, trend });
 });
 
-// POST /api/forecast — AI-прогноз с историческим контекстом
+// POST /api/forecast — AI-прогноз с историческим контекстом (асинхронно)
 router.post('/forecast', async (req: Request, res: Response) => {
   const { apiKey, daysBack } = req.body as any;
   if (!apiKey) { res.status(400).json({ error: 'apiKey обязателен' }); return; }
 
-  const days = daysBack || 7;
-  const allMetrics = readMetrics(30); // история за 30 дней
-  const { articles } = readArticles(undefined, days, 200, 0);
+  const jobId = createJob('forecast', 3);
+  res.json({ jobId, message: 'Генерация прогноза запущена' });
 
-  // Группируем метрики по имени для истории
-  const metricHistory: Record<string, { values: string[]; directions: string[] }> = {};
-  for (const m of allMetrics) {
-    if (!metricHistory[m.metricName]) metricHistory[m.metricName] = { values: [], directions: [] };
-    metricHistory[m.metricName].values.push(m.metricValue);
-    metricHistory[m.metricName].directions.push(m.direction);
-  }
+  (async () => {
+    try {
+      const days = daysBack || 7;
+      updateJob(jobId, { done: 1, currentItem: 'Сбор исторических метрик...' });
+      const allMetrics = readMetrics(30);
+      const { articles } = readArticles(undefined, days, 200, 0);
 
-  // Формируем исторический контекст
-  const historyText = Object.entries(metricHistory).map(([name, data]) =>
-    `**${name}**: значения [${data.values.slice(-10).join(', ')}], тренд: ${data.directions.slice(-5).join(' → ')}`
-  ).join('\n');
+      updateJob(jobId, { done: 2, currentItem: 'Формирование контекста...' });
+      const metricHistory: Record<string, { values: string[]; directions: string[] }> = {};
+      for (const m of allMetrics) {
+        if (!metricHistory[m.metricName]) metricHistory[m.metricName] = { values: [], directions: [] };
+        metricHistory[m.metricName].values.push(m.metricValue);
+        metricHistory[m.metricName].directions.push(m.direction);
+      }
 
-  // Свежие новости
-  const newsText = articles.map((a: any, i: number) => `${i + 1}. [${a.sourceName}] ${a.title}`).join('\n');
+      const historyText = Object.entries(metricHistory).map(([name, data]) =>
+        `**${name}**: значения [${data.values.slice(-10).join(', ')}], тренд: ${data.directions.slice(-5).join(' → ')}`
+      ).join('\n');
 
-  const prompt = `ИСТОРИЯ МЕТРИК за 30 дней:\n${historyText || 'Нет данных'}\n\nСВЕЖИЕ НОВОСТИ за ${days} дн. (${articles.length} шт.):\n${newsText.slice(0, 5000)}\n\nДай прогноз на следующую неделю.`;
+      const newsText = articles.map((a: any, i: number) => `${i + 1}. [${a.sourceName}] ${a.title}`).join('\n');
+      const prompt = `ИСТОРИЯ МЕТРИК за 30 дней:\n${historyText || 'Нет данных'}\n\nСВЕЖИЕ НОВОСТИ за ${days} дн. (${articles.length} шт.):\n${newsText.slice(0, 5000)}\n\nДай прогноз на следующую неделю.`;
 
-  try {
-    const forecast = await callDeepSeek(apiKey, FORECAST_PROMPT, prompt, 2500);
-    saveReport({
-      type: 'forecast',
-      title: `Прогноз на ${new Date().toLocaleDateString('ru-RU')}`,
-      content: forecast,
-      periodStart: new Date(Date.now() - days * 86400000).toISOString().slice(0, 10),
-      periodEnd: new Date().toISOString().slice(0, 10),
-    });
-    res.json({ forecast });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+      updateJob(jobId, { done: 2, currentItem: 'Генерация прогноза AI...' });
+      const forecast = await callDeepSeek(apiKey, FORECAST_PROMPT, prompt, 2500);
+
+      saveReport({
+        type: 'forecast', title: `Прогноз на ${new Date().toLocaleDateString('ru-RU')}`,
+        content: forecast,
+        periodStart: new Date(Date.now() - days * 86400000).toISOString().slice(0, 10),
+        periodEnd: new Date().toISOString().slice(0, 10),
+      });
+
+      updateJob(jobId, { status: 'done', done: 3, currentItem: forecast.slice(0, 100) });
+    } catch (err: any) {
+      updateJob(jobId, { status: 'error', error: err.message });
+    }
+  })().catch(err => updateJob(jobId, { status: 'error', error: err.message }));
 });
 
 // GET /api/reports — история прогнозов и сводок
