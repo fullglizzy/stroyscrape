@@ -20,6 +20,7 @@ interface JobProgress {
   currentItem: string;
   startedAt: string;
   error?: string;
+  result?: string;
 }
 
 const jobs = new Map<string, JobProgress>();
@@ -257,7 +258,7 @@ router.post('/forecast', async (req: Request, res: Response) => {
         periodEnd: new Date().toISOString().slice(0, 10),
       });
 
-      updateJob(jobId, { status: 'done', done: 3, currentItem: forecast.slice(0, 100) });
+      updateJob(jobId, { status: 'done', done: 3, currentItem: 'Прогноз готов', result: forecast });
     } catch (err: any) {
       updateJob(jobId, { status: 'error', error: err.message });
     }

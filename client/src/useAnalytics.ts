@@ -1,12 +1,15 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 
 export interface ExtractionProgress {
-  jobId: string;
+  jobId?: string;
+  id?: string;
+  type?: string;
   status: 'running' | 'done' | 'error';
   total: number;
   done: number;
   currentItem: string;
   error?: string;
+  result?: string;
 }
 
 export function useAnalytics() {
@@ -83,7 +86,7 @@ export function useAnalytics() {
               if (job.status === 'done') {
                 clearInterval(pollRef.current);
                 setForecasting(false);
-                setForecast(job.currentItem); // В currentItem лежит forecast text
+                setForecast(job.result || job.currentItem);
               }
               if (job.status === 'error') {
                 clearInterval(pollRef.current);
