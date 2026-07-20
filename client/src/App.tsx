@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Sun, Moon, Monitor } from 'lucide-react';
+import { WifiOff } from 'lucide-react';
 import { api, Article, ScrapeStatus, SourceStats } from './api';
 import { ThemeProvider, useTheme } from './ThemeContext';
 import { ToastProvider, useToast } from './ToastContext';
@@ -10,7 +10,10 @@ import ArticleList from './components/ArticleList';
 import AISummarizer from './components/AISummarizer';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import Overview from './components/Overview';
+import ErrorBoundary from './components/ErrorBoundary';
+import ScrollToTop from './components/ScrollToTop';
 import { useAnalytics } from './useAnalytics';
+import { markVisit } from './components/ArticleCard';
 
 function AppContent() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -20,6 +23,7 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
   const [section, setSection] = useState<Section>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
   const { theme, setTheme } = useTheme();
   const toast = useToast();
   const analytics = useAnalytics();
@@ -28,8 +32,9 @@ function AppContent() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
+      setConnectionError(false);
       const [articlesRes, statusRes, sourcesRes] = await Promise.all([
-        api.getArticles({ limit: 500 }),
+        api.getArticles({ limit: 50 }),
         api.getStatus(),
         api.getSources(),
       ]);
@@ -37,13 +42,18 @@ function AppContent() {
       setStatus(statusRes);
       setSources(sourcesRes);
     } catch (err: any) {
-      toast.error(err.message || 'Ошибка загрузки данных');
+      if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+        setConnectionError(true);
+      } else {
+        toast.error(err.message || 'Ошибка загрузки данных');
+      }
     } finally {
       setLoading(false);
     }
   }, []); // eslint-disable-line
 
   useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { markVisit(); }, []);
 
   // ---- Poll during scrape ----
   useEffect(() => {
@@ -54,7 +64,7 @@ function AppContent() {
         setStatus(s);
         if (!s.running) {
           const [articlesRes, sourcesRes] = await Promise.all([
-            api.getArticles({ limit: 500 }),
+            api.getArticles({ limit: 50 }),
             api.getSources(),
           ]);
           setArticles(articlesRes.articles);
@@ -177,6 +187,16 @@ function AppContent() {
         onThemeToggle={() => setTheme(nextTheme)}
       />
 
+      {/* Connection error banner */}
+      {connectionError && (
+        <div className="px-4 py-2 text-sm flex items-center justify-center gap-2"
+          style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}>
+          <WifiOff className="w-4 h-4" />
+          <span>Нет соединения с сервером.</span>
+          <button onClick={loadData} className="underline font-medium ml-2">Повторить</button>
+        </div>
+      )}
+
       {/* Main layout: Sidebar + Content */}
       <div className="flex flex-1">
         <Sidebar
@@ -191,7 +211,7 @@ function AppContent() {
 
         {/* Main content */}
         <main className="flex-1 min-w-0 px-3 md:px-5 py-4 md:py-6">
-          <div className="max-w-5xl mx-auto">
+          <div className="max-w-5xl mx-auto" key={section}>
             {renderSection()}
           </div>
         </main>
@@ -226,7 +246,10 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <AppContent />
+        <ErrorBoundary>
+          <AppContent />
+          <ScrollToTop />
+        </ErrorBoundary>
       </ToastProvider>
     </ThemeProvider>
   );

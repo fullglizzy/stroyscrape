@@ -10,6 +10,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import { useToast } from '../ToastContext';
 import InfoTip from './InfoTip';
 import { ExtractionProgress } from '../useAnalytics';
+import { formatMetric } from '../utils';
 
 interface Props {
   sources: SourceStats;
@@ -521,7 +522,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
           {/* Data table */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <thead><tr className="sticky top-0 z-10" style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
                 <th className="text-left py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Метрика</th>
                 <th className="text-left py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Значение</th>
                 <th className="text-center py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Тренд</th>
@@ -541,7 +542,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
                     <tr style={{ borderBottom: '1px solid var(--color-border)' }} className="hover:transition-colors">
                       <td className="py-2 px-2 font-medium" style={{ color: 'var(--color-text)' }}>{name}</td>
                       <td className="py-2 px-2">
-                        <span style={{ color: 'var(--color-text-secondary)' }}>{latest}{items[0]?.unit ? <span className="text-xs ml-0.5 opacity-60">{items[0].unit}</span> : ''}</span>
+                        <span style={{ color: 'var(--color-text-secondary)' }}>{formatMetric(latest, items[0]?.unit)}</span>
                         {change !== 0 && <span className="ml-1.5 text-xs" style={{ color: change>0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
                           {change>0?'+':''}{change}%</span>}
                         {items[0]?.confidence > 0 && (
