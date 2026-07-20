@@ -269,4 +269,109 @@ router.get('/reports', (req: Request, res: Response) => {
   res.json({ reports });
 });
 
+// ==================== New: Sparklines, Interpretation, What-if, Alerts ====================
+
+// GET /api/metrics/:name/sparkline — aggregated weekly values для sparkline-графиков
+router.get('/metrics/:name/sparkline', (req: Request, res: Response) => {
+  const weeks = parseInt(req.query.weeks as string, 10) || 8;
+  const trend = getMetricsTrend(String(req.params.name), weeks * 7);
+  // Aggregate by week
+  const byWeek: Record<string, number[]> = {};
+  for (const t of trend) {
+    const d = new Date(t.date);
+    const weekStart = new Date(d.setDate(d.getDate() - d.getDay())).toISOString().slice(0, 10);
+    if (!byWeek[weekStart]) byWeek[weekStart] = [];
+    const v = parseFloat(t.value);
+    if (!isNaN(v)) byWeek[weekStart].push(v);
+  }
+  const sparkline = Object.entries(byWeek).sort().map(([w, vals]) => ({
+    week: w,
+    value: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100,
+    count: vals.length,
+  }));
+  // Last direction
+  const last = trend[trend.length - 1];
+  res.json({ metric: req.params.name, sparkline, direction: last?.direction || 'flat' });
+});
+
+// POST /api/metrics/interpret — AI объясняет причину изменения метрики
+router.post('/metrics/interpret', async (req: Request, res: Response) => {
+  const { apiKey, metricName, metricValue, direction } = req.body as any;
+  if (!apiKey || !metricName) { res.status(400).json({ error: 'apiKey и metricName обязательны' }); return; }
+
+  // Ищем связанные статьи
+  const { articles } = readArticles(undefined, 7, 20, 0);
+  const relatedNews = articles
+    .filter((a: any) => a.bodyText.toLowerCase().includes(metricName.toLowerCase().slice(0, 5)))
+    .slice(0, 5);
+
+  const prompt = `Метрика "${metricName}" сейчас: ${metricValue} (${direction === 'up' ? 'растёт' : direction === 'down' ? 'падает' : 'стабильна'}).
+Связанные новости:\n${relatedNews.map((a: any, i: number) => `${i + 1}. ${a.title}`).join('\n') || 'Нет новостей'}
+Объясни КРАТКО (2-3 предложения): ПОЧЕМУ произошло изменение, какие драйверы повлияли, и ЧТО ЭТО ЗНАЧИТ для строительного бизнеса.`;
+
+  try {
+    const interpretation = await callDeepSeek(apiKey, 'Ты — ведущий аналитик строительного рынка. Объясняй кратко и по делу.', prompt, 300);
+    res.json({ metricName, interpretation });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/forecast/whatif — сценарный анализ с изменёнными параметрами
+router.post('/forecast/whatif', async (req: Request, res: Response) => {
+  const { apiKey, adjustments } = req.body as any;
+  if (!apiKey) { res.status(400).json({ error: 'apiKey обязателен' }); return; }
+
+  const allMetrics = readMetrics(30);
+  const { articles } = readArticles(undefined, 7, 200, 0);
+
+  const historyText = Object.entries(
+    allMetrics.reduce((acc: any, m) => {
+      if (!acc[m.metricName]) acc[m.metricName] = [];
+      acc[m.metricName].push(m.metricValue);
+      return acc;
+    }, {})
+  ).map(([name, values]: any) => `**${name}**: было [${values.slice(-5).join(', ')}]`)
+    .join('\n');
+
+  const adjText = adjustments
+    ? Object.entries(adjustments).map(([k, v]: any) => `- ${k}: изменено на ${v > 0 ? '+' + v + '%' : v + '%'}`).join('\n')
+    : '';
+
+  const prompt = `ИСТОРИЯ МЕТРИК:\n${historyText}\n\nСЦЕНАРИЙ (что если):\n${adjText}\n\nДай прогноз: как эти изменения повлияют на рынок? Формат: 1) Что изменится 2) Риски 3) Рекомендация.`;
+
+  try {
+    const forecast = await callDeepSeek(apiKey, FORECAST_PROMPT, prompt, 2000);
+    res.json({ scenario: adjText, forecast });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/alerts — срочные сигналы: новости, повлиявшие на метрики
+router.get('/alerts', (_req: Request, res: Response) => {
+  const { articles } = readArticles(undefined, 3, 50, 0);
+  const metrics = readMetrics(3);
+
+  // Находим метрики с резкими изменениями (вверх/вниз)
+  const alertMetrics = metrics.filter(m => m.direction !== 'flat' && m.confidence > 0.6).slice(0, 8);
+
+  // Связываем с новостями
+  const alerts = alertMetrics.map(m => {
+    const related = articles.find((a: any) =>
+      a.title.toLowerCase().includes(m.metricName.toLowerCase().slice(0, 5)) ||
+      a.bodyText.toLowerCase().includes(m.metricName.toLowerCase().slice(0, 5))
+    );
+    return {
+      metric: m.metricName,
+      value: m.metricValue,
+      direction: m.direction,
+      segment: m.segment,
+      relatedNews: related ? { title: related.title, source: related.sourceName, url: related.url } : null,
+    };
+  });
+
+  res.json({ alerts, generatedAt: new Date().toISOString() });
+});
+
 export default router;
