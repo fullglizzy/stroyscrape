@@ -61,6 +61,9 @@ function initTables(): void {
       UNIQUE(article_id, metric_name)
     );
 
+    // Migration: add unit column if missing
+    try { d.exec('ALTER TABLE metrics ADD COLUMN unit TEXT DEFAULT \'\''); } catch { /* already exists */ }
+
     CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(metric_name);
     CREATE INDEX IF NOT EXISTS idx_metrics_article ON metrics(article_id);
 
@@ -274,6 +277,7 @@ export interface Metric {
   articleId: string;
   metricName: string;
   metricValue: string;
+  unit?: string;
   direction: 'up' | 'down' | 'flat' | 'unknown';
   segment: string;
   region: string;
@@ -285,16 +289,16 @@ export interface Metric {
 export function writeMetrics(metrics: Metric[]): number {
   const d = getDb();
   const insert = d.prepare(`
-    INSERT OR REPLACE INTO metrics (article_id, metric_name, metric_value, direction, segment, region, confidence, raw_context, extracted_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO metrics (article_id, metric_name, metric_value, unit, direction, segment, region, confidence, raw_context, extracted_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = d.transaction((items: Metric[]) => {
     let added = 0;
     for (const m of items) {
       const result = insert.run(
-        m.articleId, m.metricName, m.metricValue, m.direction,
-        m.segment, m.region, m.confidence, m.rawContext, m.extractedAt
+        m.articleId, m.metricName, m.metricValue, m.unit || '',
+        m.direction, m.segment, m.region, m.confidence, m.rawContext, m.extractedAt
       );
       if (result.changes > 0) added++;
     }
@@ -327,6 +331,7 @@ export function readMetrics(daysBack?: number): Metric[] {
     articleId: r.article_id,
     metricName: r.metric_name,
     metricValue: r.metric_value,
+    unit: r.unit || '',
     direction: r.direction,
     segment: r.segment,
     region: r.region,

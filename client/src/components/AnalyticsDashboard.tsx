@@ -3,7 +3,7 @@ import { SourceStats } from '../api';
 import {
   TrendingUp, TrendingDown, BarChart3, Loader2, Sparkles, Zap, Target,
   Activity, Brain, HelpCircle, SlidersHorizontal, AlertTriangle,
-  Bell, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink,
+  Bell, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink, Download,
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import { useToast } from '../ToastContext';
@@ -24,8 +24,8 @@ interface Props {
   };
 }
 
-const PERIODS = [1, 3, 7, 14, 30];
-const PL: Record<number, string> = { 1: '24ч', 3: '3д', 7: '7д', 14: '14д', 30: '30д' };
+const PERIODS = [1, 3, 7, 14, 30, 90, 180, 365];
+const PL: Record<number, string> = { 1: '24ч', 3: '3д', 7: '7д', 14: '14д', 30: '30д', 90: '90д', 180: '6м', 365: 'Год' };
 
 export default function AnalyticsDashboard({ sources, analytics }: Props) {
   const { metrics, forecast, extracting, forecasting, extractProgress, forecastProgress,
@@ -44,6 +44,7 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
   const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [metricsExpanded, setMetricsExpanded] = useState(false);
   const [segmentFilter, setSegmentFilter] = useState<string>('all');
+  const [regionFilter, setRegionFilter] = useState<string>('all');
   const [sparklines, setSparklines] = useState<Record<string, { sparkline: any[]; direction: string }>>({});
 
   const toast = useToast();
@@ -87,10 +88,9 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
       })
     : Object.entries(metricGroups);
 
-  // Apply segment filter
-  const displayMetrics = segmentFilter === 'all'
-    ? filteredMetrics
-    : filteredMetrics.filter(([, items]) => items[0]?.segment === segmentFilter);
+  // Apply segment + region filters
+  const displayMetrics = (segmentFilter === 'all' ? filteredMetrics : filteredMetrics.filter(([, items]) => items[0]?.segment === segmentFilter))
+    .filter(([, items]) => regionFilter === 'all' || (items[0]?.region || '').includes(regionFilter));
 
   // Handlers
   const handleExtract = async () => {
@@ -126,6 +126,24 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
       setWhatIfResult(d.forecast || 'Нет данных');
     } catch (e: any) { toast.error(e.message); }
     finally { setWhatIfLoading(false); }
+  };
+
+  // CSV export
+  const exportCSV = () => {
+    const rows = [['Метрика', 'Значение', 'Ед.изм', 'Тренд', 'Сегмент', 'Регион', 'Достоверность', 'Изменение %']];
+    for (const [name, items] of displayMetrics) {
+      const latest = getLatestValue(items);
+      const prev = getPrevValue(items);
+      const change = prev !== 0 ? Math.round((latest - prev) / prev * 100) : 0;
+      const item = items.sort((a:any,b:any)=>b.extractedAt?.localeCompare(a.extractedAt||'')||0)[0];
+      rows.push([name, String(latest), item?.unit || '', item?.direction || '', segLabels[item?.segment] || item?.segment || '', item?.region || '', Math.round((item?.confidence||0)*100)+'%', change+'%']);
+    }
+    const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `metrics_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success('CSV отчёт скачан');
   };
 
   // Sparkline loader
@@ -191,7 +209,10 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {(alertsExpanded ? alerts : alerts.slice(0, 4)).map((a, i) => (
-              <div key={i} className="flex items-start gap-2 p-2 rounded-lg" style={{ background: 'var(--color-bg)' }}>
+              <div key={i} className="flex items-start gap-2 p-2 rounded-lg" style={{
+                background: a.severity === 'critical' ? 'var(--color-danger-bg)' : a.severity === 'warning' ? 'var(--color-warning-bg)' : 'var(--color-bg)',
+                borderLeft: `3px solid ${a.severity === 'critical' ? 'var(--color-danger)' : a.severity === 'warning' ? 'var(--color-warning)' : 'var(--color-primary)'}`,
+              }}>
                 {a.direction === 'up' ? <TrendingUp className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-success)' }} />
                   : <TrendingDown className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-danger)' }} />}
                 <div className="min-w-0">
@@ -276,21 +297,41 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                 style={{ color: whatIfOpen ? 'var(--color-purple)' : 'var(--color-text-muted)' }}>
                 <SlidersHorizontal className="w-3.5 h-3.5" /> What-if
               </button>
+              <button onClick={exportCSV}
+                className="flex items-center gap-1.5 text-xs font-medium"
+                style={{ color: 'var(--color-text-muted)' }}>
+                <Download className="w-3.5 h-3.5" /> CSV
+              </button>
             </div>
           </div>
 
-          {/* Segment filter chips */}
-          <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-            {[{ key: 'all', label: 'Все' }, ...Object.entries(bySeg).map(([k]) => ({ key: k, label: segLabels[k] || k }))].map(s => (
-              <button key={s.key} onClick={() => setSegmentFilter(s.key)}
-                className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
-                style={segmentFilter === s.key
-                  ? { background: 'var(--color-primary)', color: 'white' }
-                  : { background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}>
-                {s.label}
-                {s.key !== 'all' && <span className="ml-1 opacity-60">({(bySeg[s.key]?.up || 0) + (bySeg[s.key]?.down || 0) + (bySeg[s.key]?.flat || 0)})</span>}
-              </button>
-            ))}
+          {/* Segment + Region filter chips */}
+          <div className="flex flex-col gap-2 mb-3">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs mr-1" style={{ color: 'var(--color-text-muted)' }}>Сегмент:</span>
+              {[{ key: 'all', label: 'Все' }, ...Object.entries(bySeg).map(([k]) => ({ key: k, label: segLabels[k] || k }))].map(s => (
+                <button key={s.key} onClick={() => setSegmentFilter(s.key)}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
+                  style={segmentFilter === s.key
+                    ? { background: 'var(--color-primary)', color: 'white' }
+                    : { background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}>
+                  {s.label}
+                  {s.key !== 'all' && <span className="ml-1 opacity-60">({(bySeg[s.key]?.up || 0) + (bySeg[s.key]?.down || 0) + (bySeg[s.key]?.flat || 0)})</span>}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs mr-1" style={{ color: 'var(--color-text-muted)' }}>Регион:</span>
+              {[{ key: 'all', label: 'Все' }, ...[...new Set(metrics.map((m: any) => m.region).filter(Boolean))].slice(0, 8).map(r => ({ key: r, label: r }))].map(r => (
+                <button key={r.key} onClick={() => setRegionFilter(r.key)}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
+                  style={regionFilter === r.key
+                    ? { background: 'var(--color-purple)', color: 'white' }
+                    : { background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}>
+                  {r.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* What-if panel */}
@@ -340,7 +381,7 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
               <thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>
                 <th className="text-left py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Метрика</th>
                 <th className="text-left py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Значение</th>
-                <th className="text-center py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Тренд 8 нед.</th>
+                <th className="text-center py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Тренд</th>
                 <th className="text-left py-2 px-2 text-xs font-medium hidden md:table-cell" style={{ color: 'var(--color-text-muted)' }}>Сегмент</th>
                 <th className="text-center py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Драйверы</th>
               </tr></thead>
@@ -357,9 +398,14 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                     <tr style={{ borderBottom: '1px solid var(--color-border)' }} className="hover:transition-colors">
                       <td className="py-2 px-2 font-medium" style={{ color: 'var(--color-text)' }}>{name}</td>
                       <td className="py-2 px-2">
-                        <span style={{ color: 'var(--color-text-secondary)' }}>{latest}</span>
+                        <span style={{ color: 'var(--color-text-secondary)' }}>{latest}{items[0]?.unit ? <span className="text-xs ml-0.5 opacity-60">{items[0].unit}</span> : ''}</span>
                         {change !== 0 && <span className="ml-1.5 text-xs" style={{ color: change>0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
                           {change>0?'+':''}{change}%</span>}
+                        {items[0]?.confidence > 0 && (
+                          <span className="ml-1.5 w-2 h-2 rounded-full inline-block"
+                            style={{ background: items[0].confidence > 0.7 ? 'var(--color-success)' : items[0].confidence > 0.4 ? 'var(--color-warning)' : 'var(--color-danger)' }}
+                            title={`Достоверность: ${Math.round(items[0].confidence * 100)}%`} />
+                        )}
                       </td>
                       <td className="py-2 px-2">
                         <div className="flex justify-center" style={{ width: 80, height: 24, margin: '0 auto' }}>

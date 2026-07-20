@@ -47,11 +47,12 @@ const SUMMARIZE_SOURCES_PROMPT = `Ты — профессиональный ан
 const EXTRACT_METRICS_PROMPT = `Ты — анализатор строительного рынка. Извлеки из новости КОНКРЕТНЫЕ метрики.
 Верни ТОЛЬКО валидный JSON-массив. Каждый объект:
 {
-  "metric_name": "короткое имя метрики",
-  "metric_value": "число или фраза",
+  "metric_name": "короткое стандартизированное имя (например: 'Ипотечная ставка', 'Цена м²', 'Объём ввода')",
+  "metric_value": "числовое значение",
+  "unit": "единица измерения: '%', '₽', 'м²', 'млн м²', 'тыс. шт.', 'млрд ₽', 'п.п.', 'ед.'",
   "direction": "up|down|flat|unknown",
   "segment": "ипотека|цены|спрос|ввод_жилья|себестоимость|регуляторика|инвестиции|другое",
-  "region": "РФ|Москва|СПб|...",
+  "region": "РФ|Москва|СПб|Московская область|Краснодарский край|другой",
   "confidence": 0.0-1.0
 }
 Если метрик нет — верни []. НЕ добавляй markdown, только JSON.`;
@@ -170,7 +171,7 @@ router.post('/metrics/extract', async (req: Request, res: Response) => {
           for (const m of parsed) {
             metrics.push({
               articleId: article.id, metricName: m.metric_name, metricValue: String(m.metric_value || ''),
-              direction: m.direction || 'unknown', segment: m.segment || 'другое',
+              unit: m.unit || '', direction: m.direction || 'unknown', segment: m.segment || 'другое',
               region: m.region || 'РФ', confidence: m.confidence || 0.5,
               rawContext: raw.slice(0, 500), extractedAt: new Date().toISOString(),
             });
@@ -362,11 +363,16 @@ router.get('/alerts', (_req: Request, res: Response) => {
       a.title.toLowerCase().includes(m.metricName.toLowerCase().slice(0, 5)) ||
       a.bodyText.toLowerCase().includes(m.metricName.toLowerCase().slice(0, 5))
     );
+    const severity = m.confidence > 0.8 ? 'critical' : m.confidence > 0.6 ? 'warning' : 'info';
     return {
       metric: m.metricName,
       value: m.metricValue,
+      unit: (m as any).unit || '',
       direction: m.direction,
       segment: m.segment,
+      region: m.region,
+      confidence: m.confidence,
+      severity,
       relatedNews: related ? { title: related.title, source: related.sourceName, url: related.url } : null,
     };
   });
