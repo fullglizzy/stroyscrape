@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { SourceStats } from '../api';
 import {
-  TrendingUp, TrendingDown, BarChart3, Loader2, Sparkles, Zap, Target,
-  Activity, Brain, HelpCircle, SlidersHorizontal, AlertTriangle,
-  Bell, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink, Download, Newspaper,
+  TrendingUp, TrendingDown, BarChart3, Loader2, Zap, Target,
+  Activity, Brain, HelpCircle, SlidersHorizontal,
+  Bell, Eye, EyeOff, ChevronDown, ChevronUp, Download, Newspaper,
+  LayoutDashboard, Table2, Clock, FileText,
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import { useToast } from '../ToastContext';
-import { EmptyState } from './ui';
 import InfoTip from './InfoTip';
 import { ExtractionProgress } from '../useAnalytics';
 
@@ -26,8 +26,16 @@ interface Props {
   onNavigate?: (tab: string) => void;
 }
 
+type SubTab = 'overview' | 'metrics' | 'forecast';
+
 const PERIODS = [1, 3, 7, 14, 30, 90, 180, 365];
 const PL: Record<number, string> = { 1: '24ч', 3: '3д', 7: '7д', 14: '14д', 30: '30д', 90: '90д', 180: '6м', 365: 'Год' };
+
+const subTabs: { id: SubTab; icon: React.ReactNode; label: string }[] = [
+  { id: 'overview', icon: <LayoutDashboard className="w-4 h-4" />, label: 'Обзор' },
+  { id: 'metrics', icon: <Table2 className="w-4 h-4" />, label: 'Метрики' },
+  { id: 'forecast', icon: <Brain className="w-4 h-4" />, label: 'Прогноз' },
+];
 
 export default function AnalyticsDashboard({ sources, analytics, onNavigate }: Props) {
   const { metrics, forecast, extracting, forecasting, extractProgress, forecastProgress,
@@ -35,7 +43,8 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
 
   const [apiKey] = useState(() => localStorage.getItem('stroyscrape_deepseek_key') || '');
   const [period, setPeriod] = useState(7);
-  const [focusMode, setFocusMode] = useState(false); // false=all, true=critical only
+  const [subTab, setSubTab] = useState<SubTab>('overview');
+  const [focusMode, setFocusMode] = useState(false);
   const [whatIfOpen, setWhatIfOpen] = useState(false);
   const [whatIfSliders, setWhatIfSliders] = useState<Record<string, number>>({});
   const [whatIfResult, setWhatIfResult] = useState<string | null>(null);
@@ -44,6 +53,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
   const [interpretations, setInterpretations] = useState<Record<string, string>>({});
   const [alerts, setAlerts] = useState<any[]>([]);
   const [benchmarks, setBenchmarks] = useState<any[]>([]);
+  const [forecastHistory, setForecastHistory] = useState<any[]>([]);
   const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [metricsExpanded, setMetricsExpanded] = useState(false);
   const [segmentFilter, setSegmentFilter] = useState<string>('all');
@@ -52,19 +62,24 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
 
   const toast = useToast();
 
+  // -------- data loading --------
   useEffect(() => { loadMetrics(period); }, [period]);
-  useEffect(() => { loadAlerts(); loadBenchmarks(); }, []);
-  const loadAlerts = async () => { try { const r = await fetch('/api/alerts'); setAlerts((await r.json()).alerts || []); } catch { /* */ } };
-  const loadBenchmarks = async () => { try { const r = await fetch('/api/benchmarks'); setBenchmarks((await r.json()).benchmarks || []); } catch { /* */ } };
+  useEffect(() => { loadAlerts(); loadBenchmarks(); loadForecastHistory(); }, []);
+  useEffect(() => { if (forecast) loadForecastHistory(); }, [forecast]);
 
-  // Group metrics
+  const loadAlerts    = async () => { try { const r = await fetch('/api/alerts');     setAlerts((await r.json()).alerts || []); }       catch { /* */ } };
+  const loadBenchmarks = async () => { try { const r = await fetch('/api/benchmarks'); setBenchmarks((await r.json()).benchmarks || []); } catch { /* */ } };
+  const loadForecastHistory = async () => {
+    try { const r = await fetch('/api/reports?type=forecast'); setForecastHistory((await r.json()).reports || []); } catch { /* */ }
+  };
+
+  // -------- grouping & stats --------
   const metricGroups: Record<string, any[]> = {};
   for (const m of metrics) {
     if (!metricGroups[m.metricName]) metricGroups[m.metricName] = [];
     metricGroups[m.metricName].push(m);
   }
 
-  // Stats
   const counts = { up: 0, down: 0, flat: 0 };
   const bySeg: Record<string, { up: number; down: number; flat: number }> = {};
   for (const m of metrics) {
@@ -75,7 +90,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
   const total = metrics.length;
   const totalArticles = Object.values(sources).reduce((s, info) => s + info.count, 0);
 
-  // Filter for focus mode: only metrics with significant recent changes
+  // -------- filter helpers --------
   const getLatestValue = (items: any[]) => {
     const sorted = [...items].sort((a, b) => b.extractedAt?.localeCompare(a.extractedAt || '') || 0);
     return parseFloat(sorted[0]?.metricValue) || 0;
@@ -93,11 +108,10 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
       })
     : Object.entries(metricGroups);
 
-  // Apply segment + region filters
   const displayMetrics = (segmentFilter === 'all' ? filteredMetrics : filteredMetrics.filter(([, items]) => items[0]?.segment === segmentFilter))
     .filter(([, items]) => regionFilter === 'all' || (items[0]?.region || '').includes(regionFilter));
 
-  // Handlers
+  // -------- handlers --------
   const handleExtract = async () => {
     if (!apiKey) { toast.error('Введите API-ключ'); return; }
     try { await startExtraction(apiKey, period); } catch (e: any) { toast.error(e.message); }
@@ -133,7 +147,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
     finally { setWhatIfLoading(false); }
   };
 
-  // CSV export
+  // -------- CSV export --------
   const exportCSV = () => {
     const rows = [['Метрика', 'Значение', 'Ед.изм', 'Тренд', 'Сегмент', 'Регион', 'Достоверность', 'Изменение %']];
     for (const [name, items] of displayMetrics) {
@@ -151,23 +165,28 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
     toast.success('CSV отчёт скачан');
   };
 
-  // Sparkline loader
+  // -------- sparkline loader --------
   useEffect(() => {
     if (metrics.length === 0) return;
-    for (const [name] of Object.entries(metricGroups).slice(0, 30)) {
+    const names = Object.keys(metricGroups);
+    for (const name of names.slice(0, 30)) {
       fetch(`/api/metrics/${encodeURIComponent(name)}/sparkline?weeks=8`)
         .then(r => r.json()).then(d => setSparklines(prev => ({ ...prev, [name]: d }))).catch(() => {});
     }
   }, [metrics.length]);
 
+  // -------- shared data --------
   const segLabels: Record<string, string> = {
     'ипотека': 'Ипотека', 'цены': 'Цены', 'спрос': 'Спрос', 'ввод_жилья': 'Ввод жилья',
     'себестоимость': 'Себестоимость', 'регуляторика': 'Регуляторика', 'инвестиции': 'Инвестиции', 'другое': 'Другое',
   };
 
+  // ====================================================================
+  //  RENDER
+  // ====================================================================
   return (
     <div className="space-y-4 md:space-y-6 animate-fade-in">
-      {/* ============ HEADER ============ */}
+      {/* ============ COMMON HEADER (always visible) ============ */}
       <div className="card p-4 md:p-5">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -211,13 +230,29 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
         )}
       </div>
 
-      {/* ============ URGENT SIGNALS ============ */}
+      {/* ============ FLOW STEPPER (always visible when data exists) ============ */}
+      {total > 0 && (
+        <div className="flex items-center justify-center gap-2 text-xs py-2 animate-fade-in">
+          <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
+            ✓ {totalArticles} статей</span>
+          <span style={{ color: 'var(--color-text-muted)' }}>→</span>
+          <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
+            ✓ {total} метрик</span>
+          <span style={{ color: 'var(--color-text-muted)' }}>→</span>
+          <span className="px-2 py-1 rounded"
+            style={{ background: forecast ? 'var(--color-success-bg)' : 'var(--color-bg)', color: forecast ? 'var(--color-success)' : 'var(--color-text-muted)' }}>
+            {forecast ? '✓ Прогноз готов' : '3. Прогноз'}
+          </span>
+        </div>
+      )}
+
+      {/* ============ URGENT SIGNALS (always visible above sub-tabs) ============ */}
       {alerts.length > 0 && (
         <div className="card p-4 animate-slide-down" style={{ borderColor: 'var(--color-warning)' }}>
           <div className="flex items-center gap-2 mb-3">
             <Bell className="w-5 h-5" style={{ color: 'var(--color-warning)' }} />
             <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Срочные сигналы <InfoTip title="Сигналы">
-              AI находит метрики с резкими изменениями и связывает их с новостями. Красный — критический риск, жёлтый — важное изменение, синий — инфо. Клик по ссылке — открыть статью-источник.
+              AI находит метрики с резкими изменениями и связывает их с новостями. Красный border — критический риск, жёлтый — важное изменение, синий — инфо. Клик по ссылке — открыть статью-источник.
             </InfoTip></h3>
             <span className="badge" style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}>{alerts.length}</span>
           </div>
@@ -257,7 +292,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
         </div>
       )}
 
-      {/* ============ EMPTY STATE ============ */}
+      {/* ============ EMPTY STATE (no metrics, not extracting) ============ */}
       {metrics.length === 0 && !extracting && (
         <div className="card p-6 md:p-8 text-center animate-fade-in">
           <div className="mx-auto mb-5 opacity-30"><BarChart3 className="w-16 h-16" /></div>
@@ -276,7 +311,6 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
             </button>
           ) : (
             <div className="space-y-4">
-              {/* Flow stepper */}
               <div className="flex items-center justify-center gap-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
                 <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
                   ✓ {totalArticles} статей</span>
@@ -297,133 +331,152 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
         </div>
       )}
 
-      {metrics.length > 0 && (<>
-        {/* Flow stepper (when metrics exist) */}
-        {total > 0 && (
-          <div className="flex items-center justify-center gap-2 text-xs py-2 animate-fade-in">
-            <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
-              ✓ {totalArticles} статей</span>
-            <span style={{ color: 'var(--color-text-muted)' }}>→</span>
-            <span className="flex items-center gap-1 px-2 py-1 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
-              ✓ {total} метрик</span>
-            <span style={{ color: 'var(--color-text-muted)' }}>→</span>
-            <span className={`px-2 py-1 rounded ${forecast ? '' : ''}`}
-              style={{ background: forecast ? 'var(--color-success-bg)' : 'var(--color-bg)', color: forecast ? 'var(--color-success)' : 'var(--color-text-muted)' }}>
-              {forecast ? '✓ Прогноз готов' : '3. Прогноз'}
-            </span>
-          </div>
-        )}
-
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-          <KpiCard icon={<TrendingUp className="w-5 h-5" />} label="Растёт" value={`${total>0?Math.round(counts.up/total*100):0}%`} sub={`${counts.up} метрик`} color="var(--color-success)" />
-          <KpiCard icon={<TrendingDown className="w-5 h-5" />} label="Падает" value={`${total>0?Math.round(counts.down/total*100):0}%`} sub={`${counts.down} метрик`} color="var(--color-danger)" />
-          <KpiCard icon={<Activity className="w-5 h-5" />} label="Показателей" value={String(Object.keys(metricGroups).length)} sub={`${Object.keys(bySeg).length} сегментов`} color="var(--color-primary)" />
-          <KpiCard icon={<Target className="w-5 h-5" />} label="Сигналов" value={String(alerts.length)} sub="требуют внимания" color="var(--color-warning)" />
-        </div>
-
-        {/* Segment bars */}
-        <div className="card p-4 md:p-5">
-          <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>По сегментам <InfoTip title="Сегменты">
-            Распределение метрик по сегментам рынка. Зелёные столбцы — рост показателей, красные — падение. Используйте фильтр «Сегмент» над таблицей для детального просмотра конкретного сегмента.
-          </InfoTip></h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {Object.entries(bySeg).map(([seg, d]) => {
-              const st = d.up + d.down + d.flat;
-              return (<div key={seg} className="p-3 rounded-lg" style={{ background: 'var(--color-bg)' }}>
-                <div className="text-xs font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>{segLabels[seg] || seg}</div>
-                <div className="flex items-end gap-1 h-10">
-                  {d.up>0 && <div className="flex-1 rounded-t" style={{ height: `${Math.max(8,d.up/st*100)}%`, background: 'var(--color-success)', opacity: .7 }} />}
-                  {d.down>0 && <div className="flex-1 rounded-t" style={{ height: `${Math.max(8,d.down/st*100)}%`, background: 'var(--color-danger)', opacity: .7 }} />}
-                </div>
-                <div className="flex gap-2 mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  {d.up>0 && <span style={{ color: 'var(--color-success)' }}>▲{d.up}</span>}
-                  {d.down>0 && <span style={{ color: 'var(--color-danger)' }}>▼{d.down}</span>}<span>{st}</span></div>
-              </div>);
-            })}
+      {/* ============ SUB-TAB BAR (only when metrics exist) ============ */}
+      {metrics.length > 0 && (
+        <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)' }}
+          className="overflow-hidden">
+          <div className="flex overflow-x-auto">
+            {subTabs.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setSubTab(t.id)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  subTab === t.id
+                    ? 'border-[var(--color-primary)]'
+                    : 'border-transparent'
+                }`}
+                style={{
+                  color: subTab === t.id ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                  background: subTab === t.id ? 'var(--color-primary-bg)' : 'transparent',
+                }}
+              >
+                {t.icon}
+                <span className="hidden sm:inline">{t.label}</span>
+                {t.id === 'metrics' && <span className="text-xs opacity-60 ml-0.5">({displayMetrics.length})</span>}
+                {t.id === 'forecast' && forecast && <span className="w-1.5 h-1.5 rounded-full ml-0.5" style={{ background: 'var(--color-success)' }} />}
+              </button>
+            ))}
           </div>
         </div>
+      )}
 
-        {/* Benchmarks */}
-        {benchmarks.length > 0 && (
-          <div className="card p-4 md:p-5 animate-fade-in">
-            <div className="flex items-center gap-2 mb-3">
-              <Target className="w-5 h-5" style={{ color: 'var(--color-warning)' }} />
-              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Официальные бенчмарки <InfoTip title="Бенчмарки">
-                Данные ЦБ РФ (ключевая ставка, курс USD) и IRN.RU (цена м²). Эталон для проверки точности AI-метрик. ✓ — расхождение до 3% (доверять AI). Δ — расхождение более 3% (проверить). Обновляется раз в сутки.
-              </InfoTip></h3>
-              <span className="badge" style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}>
-                ЦБ РФ · IRN.RU
-              </span>
-            </div>
+      {/* ======================================================================== */}
+      {/*  TAB: OVERVIEW                                                           */}
+      {/* ======================================================================== */}
+      {metrics.length > 0 && subTab === 'overview' && (
+        <div className="space-y-4 md:space-y-6 animate-fade-in">
+          {/* KPI Cards (5 cols) */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
+            <KpiCard icon={<TrendingUp className="w-5 h-5" />}   label="Растёт"      value={`${total>0?Math.round(counts.up/total*100):0}%`} sub={`${counts.up} метрик`}    color="var(--color-success)" />
+            <KpiCard icon={<TrendingDown className="w-5 h-5" />} label="Падает"      value={`${total>0?Math.round(counts.down/total*100):0}%`} sub={`${counts.down} метрик`}  color="var(--color-danger)" />
+            <KpiCard icon={<Activity className="w-5 h-5" />}     label="Стабильно"   value={`${total>0?Math.round(counts.flat/total*100):0}%`} sub={`${counts.flat} метрик`}  color="var(--color-text-muted)" />
+            <KpiCard icon={<Target className="w-5 h-5" />}       label="Показателей" value={String(Object.keys(metricGroups).length)}        sub={`${Object.keys(bySeg).length} сегментов`} color="var(--color-primary)" />
+            <KpiCard icon={<Bell className="w-5 h-5" />}         label="Сигналов"    value={String(alerts.length)}                              sub="требуют внимания" color="var(--color-warning)" />
+          </div>
+
+          {/* Segment bars */}
+          <div className="card p-4 md:p-5">
+            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>По сегментам <InfoTip title="Сегменты">
+              Распределение метрик по сегментам рынка. Зелёные столбцы — рост показателей, красные — падение. Перейдите на вкладку «Метрики» для детальной таблицы с фильтрами.
+            </InfoTip></h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {Object.entries(
-                benchmarks.reduce((acc: Record<string, any>, b: any) => {
-                  if (!acc[b.indicator]) acc[b.indicator] = b;
-                  return acc;
-                }, {})
-              ).map(([key, b]: any) => {
-                // Find matching AI metric
-                const aiMatch = metrics.find((m: any) => {
-                  const map: Record<string, string[]> = {
-                    'key_rate': ['ипотечная ставка', 'ключевая ставка', 'ставка'],
-                    'usd_rate': ['курс доллара', 'курс usd'],
-                    'price_m2_msk': ['цена м²', 'стоимость м²', 'цена квадратного'],
-                  };
-                  return (map[key] || []).some(kw => m.metricName.toLowerCase().includes(kw));
-                });
-
-                const labelMap: Record<string, string> = {
-                  'key_rate': 'Ключевая ставка ЦБ',
-                  'usd_rate': 'Курс USD',
-                  'price_m2_msk': 'Цена м² (Москва)',
-                  'price_index': 'Индекс цен IRN',
-                };
-
-                return (
-                  <div key={key} className="p-3 rounded-lg" style={{ background: 'var(--color-bg)' }}>
-                    <div className="text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                      {labelMap[key] || key}
-                    </div>
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>
-                        {b.value}{b.unit}
-                      </span>
-                      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>офиц.</span>
-                    </div>
-                    {aiMatch && (
-                      <div className="flex items-baseline gap-1.5 mt-1">
-                        <span className="text-sm font-medium" style={{ color: 'var(--color-primary)' }}>
-                          {aiMatch.metricValue}{aiMatch.unit || b.unit}
-                        </span>
-                        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>AI</span>
-                        {(() => {
-                          const diff = parseFloat(aiMatch.metricValue) - b.value;
-                          const pct = b.value !== 0 ? Math.round((diff / b.value) * 100) : 0;
-                          if (Math.abs(pct) <= 3) return <span className="text-xs" style={{ color: 'var(--color-success)' }}>✓</span>;
-                          return <span className="text-xs" style={{ color: 'var(--color-danger)' }}>Δ{pct > 0 ? '+' : ''}{pct}%</span>;
-                        })()}
-                      </div>
-                    )}
-                    {!aiMatch && (
-                      <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Нет AI-данных для сверки</div>
-                    )}
-                    <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                      {b.date?.slice(0, 10)}
-                    </div>
+              {Object.entries(bySeg).map(([seg, d]) => {
+                const st = d.up + d.down + d.flat;
+                return (<div key={seg} className="p-3 rounded-lg" style={{ background: 'var(--color-bg)' }}>
+                  <div className="text-xs font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>{segLabels[seg] || seg}</div>
+                  <div className="flex items-end gap-1 h-10">
+                    {d.up>0 && <div className="flex-1 rounded-t" style={{ height: `${Math.max(8,d.up/st*100)}%`, background: 'var(--color-success)', opacity: .7 }} />}
+                    {d.down>0 && <div className="flex-1 rounded-t" style={{ height: `${Math.max(8,d.down/st*100)}%`, background: 'var(--color-danger)', opacity: .7 }} />}
                   </div>
-                );
+                  <div className="flex gap-2 mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    {d.up>0 && <span style={{ color: 'var(--color-success)' }}>▲{d.up}</span>}
+                    {d.down>0 && <span style={{ color: 'var(--color-danger)' }}>▼{d.down}</span>}<span>{st}</span></div>
+                </div>);
               })}
             </div>
           </div>
-        )}
 
-        {/* METRICS TABLE — главный блок */}
-        <div className="card p-4 md:p-5">
+          {/* Benchmarks */}
+          {benchmarks.length > 0 && (
+            <div className="card p-4 md:p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Target className="w-5 h-5" style={{ color: 'var(--color-warning)' }} />
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Официальные бенчмарки <InfoTip title="Бенчмарки">
+                  Данные ЦБ РФ (ключевая ставка, курс USD) и IRN.RU (цена м²). Эталон для проверки точности AI-метрик. ✓ — расхождение до 3%. Δ — расхождение более 3%. Обновляется раз в сутки.
+                </InfoTip></h3>
+                <span className="badge" style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}>
+                  ЦБ РФ · IRN.RU
+                </span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {Object.entries(
+                  benchmarks.reduce((acc: Record<string, any>, b: any) => {
+                    if (!acc[b.indicator]) acc[b.indicator] = b;
+                    return acc;
+                  }, {})
+                ).map(([key, b]: any) => {
+                  const aiMatch = metrics.find((m: any) => {
+                    const map: Record<string, string[]> = {
+                      'key_rate': ['ипотечная ставка', 'ключевая ставка', 'ставка'],
+                      'usd_rate': ['курс доллара', 'курс usd'],
+                      'price_m2_msk': ['цена м²', 'стоимость м²', 'цена квадратного'],
+                    };
+                    return (map[key] || []).some(kw => m.metricName.toLowerCase().includes(kw));
+                  });
+
+                  const labelMap: Record<string, string> = {
+                    'key_rate': 'Ключевая ставка ЦБ',
+                    'usd_rate': 'Курс USD',
+                    'price_m2_msk': 'Цена м² (Москва)',
+                    'price_index': 'Индекс цен IRN',
+                  };
+
+                  return (
+                    <div key={key} className="p-3 rounded-lg" style={{ background: 'var(--color-bg)' }}>
+                      <div className="text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        {labelMap[key] || key}
+                      </div>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>
+                          {b.value}{b.unit}
+                        </span>
+                        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>офиц.</span>
+                      </div>
+                      {aiMatch ? (
+                        <div className="flex items-baseline gap-1.5 mt-1">
+                          <span className="text-sm font-medium" style={{ color: 'var(--color-primary)' }}>
+                            {aiMatch.metricValue}{aiMatch.unit || b.unit}
+                          </span>
+                          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>AI</span>
+                          {(() => {
+                            const diff = parseFloat(aiMatch.metricValue) - b.value;
+                            const pct = b.value !== 0 ? Math.round((diff / b.value) * 100) : 0;
+                            if (Math.abs(pct) <= 3) return <span className="text-xs" style={{ color: 'var(--color-success)' }}>✓</span>;
+                            return <span className="text-xs" style={{ color: 'var(--color-danger)' }}>Δ{pct > 0 ? '+' : ''}{pct}%</span>;
+                          })()}
+                        </div>
+                      ) : (
+                        <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Нет AI-данных</div>
+                      )}
+                      <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>{b.date?.slice(0, 10)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ======================================================================== */}
+      {/*  TAB: METRICS                                                            */}
+      {/* ======================================================================== */}
+      {metrics.length > 0 && subTab === 'metrics' && (
+        <div className="card p-4 md:p-5 animate-fade-in">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-              Метрики ({displayMetrics.length}{focusMode && metrics.length !== displayMetrics.length ? ` из ${metrics.length}` : ''}) <InfoTip title="Метрики">
-                Каждая строка — показатель из новостей. Sparkline — тренд за 8 недель. Цветной кружок — достоверность AI (зелёный &gt;70%). Кнопка «Почему?» — AI объяснит причину изменения. Фильтры: Критические (&gt;5%), Сегмент, Регион.
+              Таблица метрик ({displayMetrics.length}{focusMode && displayMetrics.length !== Object.keys(metricGroups).length ? ` из ${Object.keys(metricGroups).length}` : ''}) <InfoTip title="Метрики">
+                Каждая строка — показатель из новостей. Sparkline — тренд за 8 недель. Цветной кружок — достоверность AI (зелёный &gt;70%). Кнопка «Почему?» — AI объяснит причину изменения.
               </InfoTip>
             </h3>
             <div className="flex items-center gap-3">
@@ -433,11 +486,6 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
                 {focusMode ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                 {focusMode ? 'Критические' : 'Все метрики'}
               </button>
-              <button onClick={() => { setWhatIfOpen(!whatIfOpen); setWhatIfResult(null); }}
-                className="flex items-center gap-1.5 text-xs font-medium"
-                style={{ color: whatIfOpen ? 'var(--color-purple)' : 'var(--color-text-muted)' }}>
-                <SlidersHorizontal className="w-3.5 h-3.5" /> What-if
-              </button>
               <button onClick={exportCSV}
                 className="flex items-center gap-1.5 text-xs font-medium"
                 style={{ color: 'var(--color-text-muted)' }}>
@@ -446,7 +494,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
             </div>
           </div>
 
-          {/* Segment + Region filter chips */}
+          {/* Filter chips */}
           <div className="flex flex-col gap-2 mb-3">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs mr-1" style={{ color: 'var(--color-text-muted)' }}>Сегмент:</span>
@@ -475,50 +523,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
             </div>
           </div>
 
-          {/* What-if panel */}
-          {whatIfOpen && (
-            <div className="mb-4 p-4 rounded-lg animate-slide-down" style={{ background: 'var(--color-purple-bg)', border: '1px solid var(--color-purple)' }}>
-              <div className="text-xs font-medium mb-2" style={{ color: 'var(--color-purple)' }}>Сценарный анализ: измените параметры</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-                {Object.entries(metricGroups).slice(0, 8).map(([name, items]) => {
-                  const val = getLatestValue(items);
-                  return (<div key={name}>
-                    <div className="text-xs mb-1 truncate" style={{ color: 'var(--color-text-secondary)' }}>{name}</div>
-                    <input type="range" min={-50} max={50} value={whatIfSliders[name] || 0}
-                      onChange={e => setWhatIfSliders(prev => ({ ...prev, [name]: parseInt(e.target.value) }))}
-                      className="w-full h-1.5 rounded appearance-none cursor-pointer"
-                      style={{ background: 'var(--color-border)' }} />
-                    <div className="text-xs mt-0.5" style={{ color: (whatIfSliders[name]||0)>=0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                      {(whatIfSliders[name]||0)>=0 ? '+' : ''}{whatIfSliders[name]||0}% (было {val})</div>
-                  </div>);
-                })}
-              </div>
-              <div className="flex gap-2">
-                <button onClick={handleWhatIf} disabled={whatIfLoading} className="btn text-xs"
-                  style={{ background: 'var(--color-purple)', color: 'white' }}>
-                  {whatIfLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
-                  Рассчитать сценарий</button>
-                <button onClick={() => { setWhatIfSliders({}); setWhatIfResult(null); }}
-                  className="btn-ghost text-xs">Сбросить</button>
-              </div>
-              {whatIfResult && (
-                <div className="mt-3 p-4 rounded-lg text-sm" style={{
-                  background: 'var(--color-bg)',
-                  border: '1px solid var(--color-border)',
-                  boxShadow: 'var(--shadow-md)',
-                }}>
-                  <div className="text-xs font-medium mb-2 flex items-center gap-1" style={{ color: 'var(--color-purple)' }}>
-                    <Brain className="w-3.5 h-3.5" /> Результат сценария
-                  </div>
-                  <div style={{ color: 'var(--color-text)' }}>
-                    <MarkdownRenderer text={whatIfResult} />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Table */}
+          {/* Data table */}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr style={{ borderBottom: '1px solid var(--color-border)' }}>
@@ -597,24 +602,132 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
             )}
           </div>
         </div>
-      </>)}
+      )}
 
-      {/* Forecast */}
-      {forecast && (
-        <div className="card p-4 md:p-5 animate-slide-up" style={{ borderColor: 'var(--color-purple)', background: 'var(--color-purple-bg)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2"><Brain className="w-5 h-5" style={{ color: 'var(--color-purple)' }} />
-              <h3 className="font-semibold" style={{ color: 'var(--color-purple)' }}>AI-Прогноз на неделю <InfoTip title="Прогноз">
-                Строится на истории метрик за 30 дней + свежих новостях. AI учитывает тренды, сезонность и взаимосвязи. Формат: что растёт ▲, что падает ▼, риски, рекомендации. Точность растёт с накоплением истории метрик.
-              </InfoTip></h3></div>
-            <button onClick={() => setForecast(null)} className="text-xs underline" style={{ color: 'var(--color-text-muted)' }}>скрыть</button></div>
-          <MarkdownRenderer text={forecast} /></div>
+      {/* ======================================================================== */}
+      {/*  TAB: FORECAST                                                           */}
+      {/* ======================================================================== */}
+      {metrics.length > 0 && subTab === 'forecast' && (
+        <div className="space-y-4 md:space-y-6 animate-fade-in">
+          {/* --- What-if --- */}
+          <div className="card p-4 md:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+                <SlidersHorizontal className="w-4 h-4 inline mr-1.5" style={{ color: 'var(--color-purple)' }} />
+                Сценарный анализ (What-if) <InfoTip title="Сценарии">
+                  Измените ключевые метрики на ±50% и AI спрогнозирует цепную реакцию на рынке. Например: «что если ставка упадёт на 2 п.п.?» или «что если себестоимость вырастет на 15%?».
+                </InfoTip>
+              </h3>
+              <button onClick={() => setWhatIfOpen(!whatIfOpen)}
+                className="text-xs font-medium" style={{ color: whatIfOpen ? 'var(--color-danger)' : 'var(--color-primary)' }}>
+                {whatIfOpen ? 'Свернуть' : 'Настроить'}
+              </button>
+            </div>
+
+            {whatIfOpen && (
+              <div className="mb-4 p-4 rounded-lg animate-slide-down" style={{ background: 'var(--color-purple-bg)', border: '1px solid var(--color-purple)' }}>
+                <div className="text-xs font-medium mb-3" style={{ color: 'var(--color-purple)' }}>Измените параметры</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                  {Object.entries(metricGroups).slice(0, 8).map(([name, items]) => {
+                    const val = getLatestValue(items);
+                    const unit = items[0]?.unit || '';
+                    return (<div key={name}>
+                      <div className="text-xs mb-1 truncate" style={{ color: 'var(--color-text-secondary)' }}>{name}</div>
+                      <input type="range" min={-50} max={50} value={whatIfSliders[name] || 0}
+                        onChange={e => setWhatIfSliders(prev => ({ ...prev, [name]: parseInt(e.target.value) }))}
+                        className="w-full h-1.5 rounded appearance-none cursor-pointer"
+                        style={{ background: 'var(--color-border)' }} />
+                      <div className="text-xs mt-0.5" style={{ color: (whatIfSliders[name]||0)>=0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                        {(whatIfSliders[name]||0)>=0 ? '+' : ''}{whatIfSliders[name]||0}% <span className="opacity-60">(было {val}{unit})</span></div>
+                    </div>);
+                  })}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleWhatIf} disabled={whatIfLoading} className="btn text-xs"
+                    style={{ background: 'var(--color-purple)', color: 'white' }}>
+                    {whatIfLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
+                    Рассчитать</button>
+                  <button onClick={() => { setWhatIfSliders({}); setWhatIfResult(null); }}
+                    className="btn-ghost text-xs">Сбросить</button>
+                </div>
+              </div>
+            )}
+
+            {whatIfResult && (
+              <div className="p-4 rounded-lg text-sm" style={{
+                background: 'var(--color-bg)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-md)',
+              }}>
+                <div className="text-xs font-medium mb-2 flex items-center gap-1" style={{ color: 'var(--color-purple)' }}>
+                  <Brain className="w-3.5 h-3.5" /> Результат сценария
+                </div>
+                <div style={{ color: 'var(--color-text)' }}><MarkdownRenderer text={whatIfResult} /></div>
+              </div>
+            )}
+          </div>
+
+          {/* --- AI Forecast --- */}
+          {forecast ? (
+            <div className="card p-4 md:p-5" style={{ borderColor: 'var(--color-purple)', background: 'var(--color-purple-bg)' }}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2"><Brain className="w-5 h-5" style={{ color: 'var(--color-purple)' }} />
+                  <h3 className="font-semibold" style={{ color: 'var(--color-purple)' }}>AI-Прогноз на неделю <InfoTip title="Прогноз">
+                    Строится на истории метрик + свежих новостях. AI учитывает тренды, сезонность и взаимосвязи. Формат: что растёт ▲, что падает ▼, риски, рекомендации. Точность растёт с накоплением истории.
+                  </InfoTip></h3></div>
+                <button onClick={() => setForecast(null)} className="text-xs underline" style={{ color: 'var(--color-text-muted)' }}>скрыть</button></div>
+              <MarkdownRenderer text={forecast} />
+            </div>
+          ) : (
+            <div className="card p-8 text-center">
+              <div className="mx-auto mb-4 opacity-30"><Brain className="w-12 h-12" /></div>
+              <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Прогноз ещё не сгенерирован</h3>
+              <p className="text-sm mb-4 max-w-sm mx-auto" style={{ color: 'var(--color-text-secondary)' }}>
+                AI проанализирует историю метрик и свежие новости, чтобы дать прогноз на неделю: что будет расти, падать, ключевые риски и рекомендации.
+              </p>
+              <button onClick={handleForecast} disabled={forecasting} className="btn text-sm"
+                style={{ background: 'var(--color-purple)', color: 'white' }}>
+                {forecasting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+                {forecasting ? 'Генерация...' : 'Сгенерировать прогноз'}
+              </button>
+            </div>
+          )}
+
+          {/* --- Forecast History --- */}
+          {forecastHistory.length > 0 && (
+            <div className="card p-4 md:p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Clock className="w-5 h-5" style={{ color: 'var(--color-text-muted)' }} />
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>История прогнозов <InfoTip title="История">
+                  Предыдущие AI-прогнозы сохранены в базе. Можно сравнить, что предсказывалось и что произошло на самом деле — это помогает оценить точность модели со временем.
+                </InfoTip></h3>
+                <span className="badge" style={{ background: 'var(--color-bg)', color: 'var(--color-text-muted)' }}>{forecastHistory.length}</span>
+              </div>
+              <div className="space-y-2">
+                {forecastHistory.slice(0, 10).map((r: any, i: number) => (
+                  <details key={r.id || i} className="group">
+                    <summary className="flex items-center gap-2 p-2 rounded-lg cursor-pointer text-sm"
+                      style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}>
+                      <FileText className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }} />
+                      <span className="font-medium" style={{ color: 'var(--color-text)' }}>{r.title}</span>
+                      <span className="text-xs opacity-60">{r.createdAt?.slice(0, 10)}</span>
+                      <ChevronDown className="w-3.5 h-3.5 ml-auto flex-shrink-0 group-open:rotate-180 transition-transform" />
+                    </summary>
+                    <div className="mt-2 p-3 rounded-lg text-sm" style={{ background: 'var(--color-bg)' }}>
+                      <MarkdownRenderer text={r.content} />
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-// ============== Sub-components ==============
+// ============================================================================
+//  SUB-COMPONENTS
+// ============================================================================
 
 function Sparkline({ data, color }: { data: { week: string; value: number }[]; color: string }) {
   if (!data || data.length < 2) return <div className="w-full h-full flex items-center justify-center text-xs" style={{ color: 'var(--color-text-muted)' }}>—</div>;
