@@ -4,6 +4,7 @@ import {
   Sparkles, Key, FileText, Loader2, Check, Trash2, Copy,
   ChevronDown, ChevronUp, Calendar,
 } from 'lucide-react';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface Props {
   sources: SourceStats;
@@ -306,12 +307,12 @@ export default function AISummarizer({ sources }: Props) {
                     </div>
                     {!result.error && !isExpanded && (
                       <p className="text-sm text-gray-500 line-clamp-3 mt-1">
-                        {result.summary}
+                        {result.summary.replace(/\*\*/g, '')}
                       </p>
                     )}
                     {!result.error && isExpanded && (
-                      <div className="text-sm text-gray-700 mt-2 whitespace-pre-line leading-relaxed">
-                        {result.summary}
+                      <div className="text-sm mt-2">
+                        <MarkdownRenderer text={result.summary} />
                       </div>
                     )}
                     {result.error && (
