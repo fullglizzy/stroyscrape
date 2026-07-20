@@ -120,8 +120,11 @@ export class MperspektivaScraper extends BaseScraper {
     const title = $(this.config.selectors?.title || 'h1').first().text().trim();
     if (!title) return null;
 
-    const dateStr = $(this.config.selectors?.date || 'time').first().text().trim();
-    const bodyHtml = $(this.config.selectors?.body || '.article-content, .content, article').html() || '';
+    // Дата: из meta-тега (attr content) или из элемента (text)
+    const dateEl = $(this.config.selectors?.date || 'time').first();
+    const dateStr = dateEl.attr('content') || dateEl.text().trim();
+
+    const bodyHtml = $(this.config.selectors?.body || '.c-article-body, .nws_ct').html() || '';
     const bodyText = cleanHtml(bodyHtml);
 
     const tags = $(this.config.selectors?.tags || 'a[href^="/tags/"]')

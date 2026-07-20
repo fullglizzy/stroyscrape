@@ -88,8 +88,12 @@ export class StroiMosScraper extends BaseScraper {
     const dateStr = $(this.config.selectors?.date || 'time').first().text().trim();
     const author = $(this.config.selectors?.author || '.news-author').first().text().trim() || null;
 
-    const bodyHtml = $(this.config.selectors?.body || '.news-content, .article-body').html() || '';
+    const bodyHtml = $(this.config.selectors?.body || '.js-mediator-article').html() || '';
     const bodyText = cleanHtml(bodyHtml);
+
+    // Пробуем извлечь лид из .news-wrapper__content-lead
+    const summaryRaw = $(this.config.selectors?.summary || '.news-wrapper__content-lead').first().text().trim();
+    const summary = summaryRaw || null;
 
     const tags = $(this.config.selectors?.tags || '.news-tags a, .article-topics a')
       .map((_, el) => $(el).text().trim())
@@ -105,7 +109,7 @@ export class StroiMosScraper extends BaseScraper {
       publishedAt: parseRussianDate(dateStr),
       author,
       bodyText,
-      summary: null,
+      summary,
       imageUrl,
       tags,
     });
