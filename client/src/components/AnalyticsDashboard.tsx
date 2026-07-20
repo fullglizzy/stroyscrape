@@ -362,15 +362,17 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
               </div>
               {whatIfResult && (
                 <div className="mt-3 p-4 rounded-lg text-sm" style={{
-                  background: 'var(--color-surface)',
+                  background: 'var(--color-bg)',
                   border: '1px solid var(--color-border)',
-                  color: 'var(--color-text)',
-                  boxShadow: 'var(--shadow-sm)',
+                  boxShadow: 'var(--shadow-md)',
                 }}>
                   <div className="text-xs font-medium mb-2 flex items-center gap-1" style={{ color: 'var(--color-purple)' }}>
                     <Brain className="w-3.5 h-3.5" /> Результат сценария
                   </div>
-                  <MarkdownRenderer text={whatIfResult} /></div>
+                  <div style={{ color: 'var(--color-text)' }}>
+                    <MarkdownRenderer text={whatIfResult} />
+                  </div>
+                </div>
               )}
             </div>
           )}

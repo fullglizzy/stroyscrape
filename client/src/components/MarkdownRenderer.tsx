@@ -79,14 +79,14 @@ export default function MarkdownRenderer({ text }: { text: string }) {
         switch (block.type) {
           case 'h2':
             return (
-              <h3 key={idx} className="text-base font-bold text-gray-800 border-b border-gray-200 pb-1.5 mt-1">
+              <h3 key={idx} className="text-base font-bold pb-1.5 mt-1" style={{ color: 'var(--color-text)', borderBottom: '1px solid var(--color-border)' }}>
                 {renderBold(block.content)}
               </h3>
             );
 
           case 'h3':
             return (
-              <h4 key={idx} className="text-sm font-bold text-gray-700 mt-2">
+              <h4 key={idx} className="text-sm font-bold mt-2" style={{ color: 'var(--color-text)' }}>
                 {renderBold(block.content)}
               </h4>
             );
@@ -94,10 +94,11 @@ export default function MarkdownRenderer({ text }: { text: string }) {
           case 'list-item':
             return (
               <div key={idx} className="flex gap-3 items-start">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center mt-0.5">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center mt-0.5"
+                  style={{ background: 'var(--color-primary-bg)', color: 'var(--color-primary)' }}>
                   {block.number}
                 </span>
-                <span className="text-sm text-gray-700 leading-relaxed flex-1">
+                <span className="text-sm leading-relaxed flex-1" style={{ color: 'var(--color-text-secondary)' }}>
                   {renderBold(block.content)}
                 </span>
               </div>
@@ -106,8 +107,8 @@ export default function MarkdownRenderer({ text }: { text: string }) {
           case 'bullet':
             return (
               <div key={idx} className="flex gap-2 items-start ml-2">
-                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-gray-400 mt-2" />
-                <span className="text-sm text-gray-700 leading-relaxed">
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full mt-2" style={{ background: 'var(--color-text-muted)' }} />
+                <span className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
                   {renderBold(block.content)}
                 </span>
               </div>
@@ -115,7 +116,7 @@ export default function MarkdownRenderer({ text }: { text: string }) {
 
           case 'p':
             return (
-              <p key={idx} className="text-sm text-gray-700 leading-relaxed">
+              <p key={idx} className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
                 {renderBold(block.content)}
               </p>
             );
@@ -143,7 +144,7 @@ function renderBold(text: string): React.ReactNode {
   const parts = text.split(/(\*\*.*?\*\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={i} className="font-semibold text-gray-900">{part.slice(2, -2)}</strong>;
+      return <strong key={i} className="font-semibold" style={{ color: 'var(--color-text)' }}>{part.slice(2, -2)}</strong>;
     }
     return <Fragment key={i}>{part}</Fragment>;
   });
