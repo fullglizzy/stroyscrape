@@ -116,17 +116,17 @@ export const api = {
   getSources: () => fetchJSON<SourceStats>('/sources'),
 
   /** Извлечь метрики из статей через AI */
-  extractMetrics: (apiKey: string, params: { sourceIds?: string[]; daysBack: number }) =>
+  extractMetrics: (params: { sourceIds?: string[]; daysBack: number }) =>
     fetchJSON<{ extracted: number; errors: string[] }>('/metrics/extract', {
       method: 'POST',
-      body: JSON.stringify({ apiKey, ...params }),
+      body: JSON.stringify(params),
     }),
 
   /** Получить AI-прогноз */
-  getForecast: (apiKey: string, daysBack: number) =>
+  getForecast: (daysBack: number) =>
     fetchJSON<{ forecast: string }>('/forecast', {
       method: 'POST',
-      body: JSON.stringify({ apiKey, daysBack }),
+      body: JSON.stringify({ daysBack }),
     }),
 
   /** История прогнозов */

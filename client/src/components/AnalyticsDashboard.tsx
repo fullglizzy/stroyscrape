@@ -19,8 +19,8 @@ interface Props {
     extractProgress: ExtractionProgress | null;
     forecastProgress: ExtractionProgress | null;
     loadMetrics: (days: number) => Promise<void>;
-    startExtraction: (apiKey: string, days: number) => Promise<void>;
-    startForecast: (apiKey: string, days: number) => Promise<void>;
+    startExtraction: (days: number) => Promise<void>;
+    startForecast: (days: number) => Promise<void>;
     setForecast: (f: string | null) => void;
   };
   onNavigate?: (tab: string) => void;
@@ -41,7 +41,6 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
   const { metrics, forecast, extracting, forecasting, extractProgress, forecastProgress,
     loadMetrics, startExtraction, startForecast, setForecast } = analytics;
 
-  const [apiKey] = useState(() => localStorage.getItem('stroyscrape_deepseek_key') || '');
   const [period, setPeriod] = useState(7);
   const [subTab, setSubTab] = useState<SubTab>('overview');
   const [focusMode, setFocusMode] = useState(false);
@@ -113,20 +112,17 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
 
   // -------- handlers --------
   const handleExtract = async () => {
-    if (!apiKey) { toast.error('Введите API-ключ'); return; }
-    try { await startExtraction(apiKey, period); } catch (e: any) { toast.error(e.message); }
+    try { await startExtraction(period); } catch (e: any) { toast.error(e.message); }
   };
   const handleForecast = async () => {
-    if (!apiKey) { toast.error('Введите API-ключ'); return; }
-    try { await startForecast(apiKey, period); } catch (e: any) { toast.error(e.message); }
+    try { await startForecast(period); } catch (e: any) { toast.error(e.message); }
   };
   const handleInterpret = async (metricName: string, value: string, direction: string, articleId?: string) => {
-    if (!apiKey) { toast.error('Введите API-ключ'); return; }
     setInterpreting(metricName);
     try {
       const r = await fetch('/api/metrics/interpret', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, metricName, metricValue: value, direction, articleId }),
+        body: JSON.stringify({ metricName, metricValue: value, direction, articleId }),
       });
       const d = await r.json();
       setInterpretations(prev => ({ ...prev, [metricName]: d.interpretation || 'Нет данных' }));
@@ -134,12 +130,11 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
     finally { setInterpreting(null); }
   };
   const handleWhatIf = async () => {
-    if (!apiKey) { toast.error('Введите API-ключ'); return; }
     setWhatIfLoading(true);
     try {
       const r = await fetch('/api/forecast/whatif', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, adjustments: whatIfSliders }),
+        body: JSON.stringify({ adjustments: whatIfSliders }),
       });
       const d = await r.json();
       setWhatIfResult(d.forecast || 'Нет данных');

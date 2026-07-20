@@ -29,13 +29,13 @@ export function useAnalytics() {
     } catch { /* ignore */ }
   }, []);
 
-  const startExtraction = useCallback(async (apiKey: string, daysBack: number) => {
+  const startExtraction = useCallback(async (daysBack: number) => {
     setExtracting(true);
     setExtractProgress(null);
     try {
       const res = await fetch('/api/metrics/extract', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, daysBack }),
+        body: JSON.stringify({ daysBack }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -64,13 +64,13 @@ export function useAnalytics() {
     }
   }, [loadMetrics]);
 
-  const startForecast = useCallback(async (apiKey: string, daysBack: number) => {
+  const startForecast = useCallback(async (daysBack: number) => {
     setForecasting(true);
     setForecastProgress(null);
     try {
       const res = await fetch('/api/forecast', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, daysBack }),
+        body: JSON.stringify({ daysBack }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);

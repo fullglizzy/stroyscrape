@@ -112,7 +112,14 @@ const FORECAST_PROMPT = `Ты — ведущий аналитик строите
 
 // ==================== Helpers ====================
 
-async function callDeepSeek(apiKey: string, systemPrompt: string, userPrompt: string, maxTokens: number = 2000): Promise<string> {
+function getApiKey(): string {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new Error('DEEPSEEK_API_KEY не задан в .env на сервере');
+  return key;
+}
+
+async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens: number = 2000): Promise<string> {
+  const apiKey = getApiKey();
   const res = await fetch(DEEPSEEK_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -135,8 +142,11 @@ async function callDeepSeek(apiKey: string, systemPrompt: string, userPrompt: st
 
 // POST /api/summarize/sources — сводка по источникам за период
 router.post('/summarize/sources', async (req: Request, res: Response) => {
-  const { apiKey, sourceIds, daysBack, maxLength } = req.body as any;
-  if (!apiKey) { res.status(400).json({ error: 'apiKey обязателен' }); return; }
+  try {
+    getApiKey(); // проверим что ключ есть
+  } catch (e: any) { res.status(500).json({ error: e.message }); return; }
+
+  const { sourceIds, daysBack, maxLength } = req.body as any;
 
   const days = daysBack || 7;
   const { articles } = readArticles(undefined, days, 1000, 0);
@@ -159,7 +169,7 @@ router.post('/summarize/sources', async (req: Request, res: Response) => {
       group.articles.sort((a: any, b: any) => b.publishedAt.localeCompare(a.publishedAt));
       const text = group.articles.map((a: any, i: number) => `${i + 1}. ${a.title}\n${a.bodyText.slice(0, 600).trim()}`).join('\n\n');
       const prompt = `Сводка по "${group.name}" за ${days} дн. (${group.articles.length} новостей). Объём: до ${maxLength || 400} слов.\n\n${text.slice(0, 10000)}`;
-      const summary = await callDeepSeek(apiKey, SUMMARIZE_SOURCES_PROMPT, prompt);
+      const summary = await callDeepSeek(SUMMARIZE_SOURCES_PROMPT, prompt);
       summaries.push({ sourceId, sourceName: group.name, articleCount: group.articles.length, dateRange: { from: '', to: '' }, summary });
     } catch (err: any) {
       summaries.push({ sourceId, sourceName: group.name, articleCount: group.articles.length, dateRange: { from: '', to: '' }, summary: '', error: err.message });
@@ -172,8 +182,11 @@ router.post('/summarize/sources', async (req: Request, res: Response) => {
 
 // POST /api/metrics/extract — старт извлечения метрик (асинхронно, прогресс через /status)
 router.post('/metrics/extract', async (req: Request, res: Response) => {
-  const { apiKey, sourceIds, daysBack } = req.body as any;
-  if (!apiKey) { res.status(400).json({ error: 'apiKey обязателен' }); return; }
+  try {
+    getApiKey();
+  } catch (e: any) { res.status(500).json({ error: e.message }); return; }
+
+  const { sourceIds, daysBack } = req.body as any;
 
   const days = daysBack || 7;
   const { articles } = readArticles(undefined, days, 500, 0);
@@ -195,7 +208,7 @@ router.post('/metrics/extract', async (req: Request, res: Response) => {
       updateJob(jobId, { done: i, currentItem: article.title.slice(0, 80) });
       try {
         const prompt = `Заголовок: ${article.title}\n\nТекст: ${article.bodyText.slice(0, 2000)}`;
-        const raw = await callDeepSeek(apiKey, EXTRACT_METRICS_PROMPT, prompt, 400);
+        const raw = await callDeepSeek(EXTRACT_METRICS_PROMPT, prompt, 400);
         const jsonMatch = raw.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
@@ -249,8 +262,11 @@ router.get('/metrics/trend/:name', (req: Request, res: Response) => {
 
 // POST /api/forecast — AI-прогноз с историческим контекстом (асинхронно)
 router.post('/forecast', async (req: Request, res: Response) => {
-  const { apiKey, daysBack } = req.body as any;
-  if (!apiKey) { res.status(400).json({ error: 'apiKey обязателен' }); return; }
+  try {
+    getApiKey();
+  } catch (e: any) { res.status(500).json({ error: e.message }); return; }
+
+  const { daysBack } = req.body as any;
 
   const jobId = createJob('forecast', 3);
   res.json({ jobId, message: 'Генерация прогноза запущена' });
@@ -278,7 +294,7 @@ router.post('/forecast', async (req: Request, res: Response) => {
       const prompt = `ИСТОРИЯ МЕТРИК за 30 дней:\n${historyText || 'Нет данных'}\n\nСВЕЖИЕ НОВОСТИ за ${days} дн. (${articles.length} шт.):\n${newsText.slice(0, 5000)}\n\nДай прогноз на следующую неделю.`;
 
       updateJob(jobId, { done: 2, currentItem: 'Генерация прогноза AI...' });
-      const forecast = await callDeepSeek(apiKey, FORECAST_PROMPT, prompt, 2500);
+      const forecast = await callDeepSeek(FORECAST_PROMPT, prompt, 2500);
 
       saveReport({
         type: 'forecast', title: `Прогноз на ${new Date().toLocaleDateString('ru-RU')}`,
@@ -328,8 +344,12 @@ router.get('/metrics/:name/sparkline', (req: Request, res: Response) => {
 
 // POST /api/metrics/interpret — AI объясняет причину изменения метрики
 router.post('/metrics/interpret', async (req: Request, res: Response) => {
-  const { apiKey, metricName, metricValue, direction, articleId } = req.body as any;
-  if (!apiKey || !metricName) { res.status(400).json({ error: 'apiKey и metricName обязательны' }); return; }
+  try {
+    getApiKey();
+  } catch (e: any) { res.status(500).json({ error: e.message }); return; }
+
+  const { metricName, metricValue, direction, articleId } = req.body as any;
+  if (!metricName) { res.status(400).json({ error: 'metricName обязателен' }); return; }
 
   // Ищем связанные статьи: сначала по article_id из метрики, потом по ключевым словам
   let relatedNews: any[] = [];
@@ -351,7 +371,7 @@ router.post('/metrics/interpret', async (req: Request, res: Response) => {
 Объясни (2-3 предложения): ПОЧЕМУ произошло изменение. Ссылайся на конкретные новости из списка выше. Если связь между метрикой и новостями неочевидна — начни с фразы "Точная причина неясна, но возможно...". Объясни, ЧТО ЭТО ЗНАЧИТ для строительного бизнеса.`;
 
   try {
-    const interpretation = await callDeepSeek(apiKey, 'Ты — ведущий аналитик строительного рынка. Объясняй причинно-следственные связи на основе новостей. Если причина неочевидна — честно признай это, не выдумывай.', prompt, 350);
+    const interpretation = await callDeepSeek('Ты — ведущий аналитик строительного рынка. Объясняй причинно-следственные связи на основе новостей. Если причина неочевидна — честно признай это, не выдумывай.', prompt, 350);
     res.json({ metricName, interpretation });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -360,8 +380,11 @@ router.post('/metrics/interpret', async (req: Request, res: Response) => {
 
 // POST /api/forecast/whatif — сценарный анализ с изменёнными параметрами
 router.post('/forecast/whatif', async (req: Request, res: Response) => {
-  const { apiKey, adjustments } = req.body as any;
-  if (!apiKey) { res.status(400).json({ error: 'apiKey обязателен' }); return; }
+  try {
+    getApiKey();
+  } catch (e: any) { res.status(500).json({ error: e.message }); return; }
+
+  const { adjustments } = req.body as any;
 
   const allMetrics = readMetrics(90); // what-if: 90 дней истории для контекста
   const { articles } = readArticles(undefined, 7, 200, 0);
@@ -382,7 +405,7 @@ router.post('/forecast/whatif', async (req: Request, res: Response) => {
   const prompt = `ИСТОРИЯ МЕТРИК:\n${historyText}\n\nСЦЕНАРИЙ (что если):\n${adjText}\n\nСпрогнозируй, как эти изменения повлияют на рынок в целом. Учитывай ВЗАИМОСВЯЗИ между метриками — опиши цепную реакцию. Сравни с текущим состоянием (без изменений).\n\nФормат:\n### Прямые эффекты\n(что изменится непосредственно)\n\n### Цепная реакция\n(как изменение одних метрик повлияет на другие — опиши логическую цепочку)\n\n### Риски сценария\n\n### Вывод\n(общая оценка влияния на строительный рынок, без финансовых рекомендаций)`;
 
   try {
-    const forecast = await callDeepSeek(apiKey, 'Ты — аналитик строительного рынка. Моделируй взаимосвязи: рост ставок → удорожание кредитов → снижение спроса → коррекция цен. Учитывай цепные реакции. НЕ выдумывай цифры, не подкреплённые историей. Без финансовых рекомендаций.', prompt, 2000);
+    const forecast = await callDeepSeek('Ты — аналитик строительного рынка. Моделируй взаимосвязи: рост ставок → удорожание кредитов → снижение спроса → коррекция цен. Учитывай цепные реакции. НЕ выдумывай цифры, не подкреплённые историей. Без финансовых рекомендаций.', prompt, 2000);
     res.json({ scenario: adjText, forecast });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

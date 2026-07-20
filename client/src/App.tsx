@@ -1,18 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Newspaper, Sparkles, BarChart3, Menu, X, Sun, Moon, Monitor } from 'lucide-react';
+import { Sun, Moon, Monitor } from 'lucide-react';
 import { api, Article, ScrapeStatus, SourceStats } from './api';
 import { ThemeProvider, useTheme } from './ThemeContext';
 import { ToastProvider, useToast } from './ToastContext';
 import Header from './components/Header';
+import Sidebar, { Section } from './components/Sidebar';
 import ScraperPanel from './components/ScraperPanel';
-import StatsBar from './components/StatsBar';
-import SourceFilter from './components/SourceFilter';
 import ArticleList from './components/ArticleList';
 import AISummarizer from './components/AISummarizer';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
+import Overview from './components/Overview';
 import { useAnalytics } from './useAnalytics';
-
-type Tab = 'news' | 'ai' | 'analytics';
 
 function AppContent() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -20,12 +18,13 @@ function AppContent() {
   const [sources, setSources] = useState<SourceStats>({});
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>('news');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [section, setSection] = useState<Section>('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const toast = useToast();
   const analytics = useAnalytics();
 
+  // ---- Data loading ----
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -42,10 +41,11 @@ function AppContent() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, []); // eslint-disable-line
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ---- Poll during scrape ----
   useEffect(() => {
     if (!status?.running) return;
     const interval = setInterval(async () => {
@@ -66,15 +66,14 @@ function AppContent() {
     return () => clearInterval(interval);
   }, [status?.running]);
 
+  // ---- Scrape handlers ----
   const handleStartScrape = async (sourceId?: string) => {
     try {
       await api.startScrape(sourceId);
       const s = await api.getStatus();
       setStatus(s);
-      toast.success(sourceId ? `Парсинг источника запущен` : 'Парсинг всех источников запущен');
-    } catch (err: any) {
-      toast.error(err.message);
-    }
+      toast.success(sourceId ? 'Парсинг источника запущен' : 'Парсинг запущен');
+    } catch (err: any) { toast.error(err.message); }
   };
 
   const handleStopScrape = async () => {
@@ -83,9 +82,7 @@ function AppContent() {
       const s = await api.getStatus();
       setStatus(s);
       toast.warning('Парсинг остановлен');
-    } catch (err: any) {
-      toast.error(err.message);
-    }
+    } catch (err: any) { toast.error(err.message); }
   };
 
   const handleResetStatus = async () => {
@@ -93,109 +90,133 @@ function AppContent() {
       await api.resetScrape();
       setStatus(await api.getStatus());
       toast.success('Статус сброшен');
-    } catch (err: any) {
-      toast.error(err.message);
-    }
+    } catch (err: any) { toast.error(err.message); }
   };
 
+  // ---- Article filtering ----
   const filteredArticles = selectedSources.size > 0
     ? articles.filter(a => selectedSources.has(a.source))
     : articles;
 
-  const tabs: { id: Tab; icon: React.ReactNode; label: string }[] = [
-    { id: 'news', icon: <Newspaper className="w-4 h-4" />, label: 'Новости' },
-    { id: 'ai', icon: <Sparkles className="w-4 h-4" />, label: 'AI Сводка' },
-    { id: 'analytics', icon: <BarChart3 className="w-4 h-4" />, label: 'Аналитика' },
-  ];
-
-  const themeIcon = theme === 'dark' ? <Moon className="w-4 h-4" /> : theme === 'light' ? <Sun className="w-4 h-4" /> : <Monitor className="w-4 h-4" />;
+  // ---- Theme ----
   const nextTheme = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
 
-  const isRunning = status?.running ?? false;
-  const progress = status?.progress;
-  const scrapePercent = progress ? Math.round((progress.doneSources / progress.totalSources) * 100) : 0;
+  // ---- Footer data ----
+  const lastScrapeTime = status?.lastRun ? new Date(status.lastRun).toLocaleString('ru-RU') : null;
+  const totalArticles = Object.values(sources).reduce((s, info) => s + info.count, 0);
+  const activeSourceCount = Object.values(sources).filter(s => s.count > 0).length;
+  const totalSourceCount = Object.keys(sources).length;
+  const freshnessColor = lastScrapeTime && (Date.now() - new Date(status!.lastRun!).getTime()) < 3 * 3600000
+    ? 'var(--color-success)' : 'var(--color-warning)';
+
+  // ---- Section renderer ----
+  const renderSection = () => {
+    switch (section) {
+      case 'overview':
+        return (
+          <Overview
+            sources={sources}
+            metrics={analytics.metrics}
+            forecast={analytics.forecast}
+            onNavigate={(s) => setSection(s as Section)}
+            onExtract={() => setSection('analytics')}
+          />
+        );
+      case 'news':
+        return (
+          <div className="space-y-4 animate-fade-in">
+            <ArticleList articles={filteredArticles} loading={loading} />
+          </div>
+        );
+      case 'ai':
+        return (
+          <AISummarizer
+            sources={sources}
+            selectedSources={selectedSources}
+          />
+        );
+      case 'analytics':
+        return (
+          <AnalyticsDashboard
+            sources={sources}
+            analytics={analytics}
+            onNavigate={(t) => setSection(t as Section)}
+          />
+        );
+      case 'scraper':
+        return (
+          <ScraperPanel
+            status={status}
+            sources={sources}
+            onStartScrape={handleStartScrape}
+            onStopScrape={handleStopScrape}
+            onResetStatus={handleResetStatus}
+          />
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--color-bg)' }}>
-      {/* Scrape progress bar — top of page */}
-      {isRunning && (
+      {/* Top progress bar */}
+      {status?.running && (
         <div className="progress-bar" style={{ height: 3, borderRadius: 0, position: 'sticky', top: 0, zIndex: 50 }}>
-          <div className="progress-bar-fill" style={{ width: `${scrapePercent}%`, borderRadius: 0 }} />
+          <div className="progress-bar-fill" style={{
+            width: `${status.progress ? Math.round((status.progress.doneSources / status.progress.totalSources) * 100) : 0}%`,
+            borderRadius: 0,
+          }} />
         </div>
       )}
 
       <Header
-        mobileMenuOpen={mobileMenuOpen}
-        onToggleMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
-        themeIcon={themeIcon}
+        mobileMenuOpen={sidebarOpen}
+        onToggleMenu={() => setSidebarOpen(!sidebarOpen)}
+        themeIcon={<></>}
         onThemeToggle={() => setTheme(nextTheme)}
       />
 
-      {/* Tab bar */}
-      <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
-        <div className="max-w-7xl mx-auto px-3 md:px-4 flex overflow-x-auto">
-          {tabs.map(t => (
-            <button
-              key={t.id}
-              onClick={() => { setTab(t.id); setMobileMenuOpen(false); }}
-              className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-5 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                tab === t.id
-                  ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
-                  : 'border-transparent'
-              }`}
-              style={{ color: tab === t.id ? 'var(--color-primary)' : 'var(--color-text-secondary)' }}
-            >
-              {t.icon}
-              <span className="hidden sm:inline">{t.label}</span>
-            </button>
-          ))}
-        </div>
+      {/* Main layout: Sidebar + Content */}
+      <div className="flex flex-1">
+        <Sidebar
+          section={section}
+          onNavigate={setSection}
+          sources={sources}
+          selectedSources={selectedSources}
+          onSourceChange={setSelectedSources}
+          sidebarOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
+
+        {/* Main content */}
+        <main className="flex-1 min-w-0 px-3 md:px-5 py-4 md:py-6">
+          <div className="max-w-5xl mx-auto">
+            {renderSection()}
+          </div>
+        </main>
       </div>
 
-      <main className="flex-1 max-w-7xl mx-auto w-full px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6">
-        {tab === 'news' ? (
-          <>
-            <div className="animate-fade-in">
-              <ScraperPanel
-                status={status}
-                sources={sources}
-                onStartScrape={handleStartScrape}
-                onStopScrape={handleStopScrape}
-                onResetStatus={handleResetStatus}
-                onRefresh={loadData}
-                loading={loading}
-              />
-            </div>
-
-            <div className="animate-slide-up">
-              <StatsBar articles={articles} sources={sources} loading={loading} />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 md:gap-6">
-              <aside className="lg:col-span-1 order-2 lg:order-1">
-                <SourceFilter sources={sources} selected={selectedSources} onChange={setSelectedSources} />
-              </aside>
-              <section className="lg:col-span-3 order-1 lg:order-2">
-                <ArticleList articles={filteredArticles} loading={loading} />
-              </section>
-            </div>
-          </>
-        ) : tab === 'ai' ? (
-          <div className="animate-fade-in">
-            <AISummarizer sources={sources} />
-          </div>
-        ) : (
-          <div className="animate-fade-in">
-            <AnalyticsDashboard sources={sources} analytics={analytics} onNavigate={(t) => setTab(t as Tab)} />
-          </div>
-        )}
-      </main>
-
+      {/* Footer */}
       <footer style={{ background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)' }}
-        className="py-3 text-center text-xs" >
+        className="py-2.5 px-4 text-xs flex items-center justify-between flex-wrap gap-x-4 gap-y-1">
         <span style={{ color: 'var(--color-text-muted)' }}>
-          СтройПарсер — аналитическая платформа строительной отрасли России
+          СтройПарсер — аналитика строительного рынка
         </span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span style={{ color: 'var(--color-text-muted)' }}>
+            📰 {totalArticles} статей
+          </span>
+          <span style={{ color: 'var(--color-text-muted)' }}>
+            📡 {activeSourceCount}/{totalSourceCount} источников
+          </span>
+          {lastScrapeTime && (
+            <span className="flex items-center gap-1" style={{ color: freshnessColor }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: freshnessColor }} />
+              {lastScrapeTime}
+            </span>
+          )}
+        </div>
       </footer>
     </div>
   );

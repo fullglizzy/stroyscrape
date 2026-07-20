@@ -10,6 +10,14 @@ import { Article, ScrapeStatus, ScrapeError } from './types.js';
 const DATA_DIR = process.env.DATA_DIR || './data';
 const DB_PATH = path.join(DATA_DIR, 'stroyscrape.db');
 
+/** ID источников, отключённых через env SOURCES_DISABLED */
+function getDisabledSourceIds(): string[] {
+  return (process.env.SOURCES_DISABLED || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 let db: Database.Database;
 
 export function getDb(): Database.Database {
@@ -111,6 +119,13 @@ export function readArticles(source?: string, daysBack?: number, limit?: number,
   const conditions: string[] = [];
   const params: any[] = [];
 
+  // Фильтруем отключённые источники
+  const disabledIds = getDisabledSourceIds();
+  if (disabledIds.length > 0) {
+    conditions.push(`source NOT IN (${disabledIds.map(() => '?').join(',')})`);
+    params.push(...disabledIds);
+  }
+
   if (source) {
     conditions.push('source = ?');
     params.push(source);
@@ -199,8 +214,10 @@ export function getSourceStats(): Record<string, { name: string; count: number; 
     FROM articles GROUP BY source ORDER BY cnt DESC
   `).all() as any[];
 
+  const disabledIds = getDisabledSourceIds();
   const stats: Record<string, any> = {};
   for (const r of rows) {
+    if (disabledIds.includes(r.source)) continue;
     stats[r.source] = { name: r.source_name, count: r.cnt, lastArticle: r.last_pub };
   }
   return stats;

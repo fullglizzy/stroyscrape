@@ -4,7 +4,8 @@
 
 import { SourceConfig } from '../types.js';
 
-export const SOURCES: SourceConfig[] = [
+/** Все зарегистрированные источники */
+const ALL_SOURCES: SourceConfig[] = [
   // ============================
   // RSS-источники (полный текст)
   // ============================
@@ -143,3 +144,18 @@ export const SOURCES: SourceConfig[] = [
     requestDelay: 2000,
   },
 ];
+
+/** ID источников, отключённых через env SOURCES_DISABLED */
+export function getDisabledSourceIds(): string[] {
+  return (process.env.SOURCES_DISABLED || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+/** Активные источники (все, кроме отключённых через SOURCES_DISABLED) */
+export const SOURCES: SourceConfig[] = (() => {
+  const disabled = getDisabledSourceIds();
+  if (disabled.length === 0) return ALL_SOURCES;
+  return ALL_SOURCES.filter(s => !disabled.includes(s.id));
+})();
