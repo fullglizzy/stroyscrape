@@ -43,6 +43,7 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [metricsExpanded, setMetricsExpanded] = useState(false);
+  const [segmentFilter, setSegmentFilter] = useState<string>('all');
   const [sparklines, setSparklines] = useState<Record<string, { sparkline: any[]; direction: string }>>({});
 
   const toast = useToast();
@@ -82,9 +83,14 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
     ? Object.entries(metricGroups).filter(([, items]) => {
         const curr = getLatestValue(items);
         const prev = getPrevValue(items);
-        return prev !== 0 && Math.abs((curr - prev) / prev) > 0.05; // >5% change
+        return prev !== 0 && Math.abs((curr - prev) / prev) > 0.05;
       })
     : Object.entries(metricGroups);
+
+  // Apply segment filter
+  const displayMetrics = segmentFilter === 'all'
+    ? filteredMetrics
+    : filteredMetrics.filter(([, items]) => items[0]?.segment === segmentFilter);
 
   // Handlers
   const handleExtract = async () => {
@@ -246,7 +252,7 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
         <div className="card p-4 md:p-5">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-              Метрики ({filteredMetrics.length}{focusMode && metrics.length !== filteredMetrics.length ? ` из ${metrics.length}` : ''})
+              Метрики ({displayMetrics.length}{focusMode && metrics.length !== displayMetrics.length ? ` из ${metrics.length}` : ''})
             </h3>
             <div className="flex items-center gap-3">
               <button onClick={() => setFocusMode(!focusMode)}
@@ -261,6 +267,20 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                 <SlidersHorizontal className="w-3.5 h-3.5" /> What-if
               </button>
             </div>
+          </div>
+
+          {/* Segment filter chips */}
+          <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+            {[{ key: 'all', label: 'Все' }, ...Object.entries(bySeg).map(([k]) => ({ key: k, label: segLabels[k] || k }))].map(s => (
+              <button key={s.key} onClick={() => setSegmentFilter(s.key)}
+                className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
+                style={segmentFilter === s.key
+                  ? { background: 'var(--color-primary)', color: 'white' }
+                  : { background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}>
+                {s.label}
+                {s.key !== 'all' && <span className="ml-1 opacity-60">({(bySeg[s.key]?.up || 0) + (bySeg[s.key]?.down || 0) + (bySeg[s.key]?.flat || 0)})</span>}
+              </button>
+            ))}
           </div>
 
           {/* What-if panel */}
@@ -315,7 +335,7 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                 <th className="text-center py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Драйверы</th>
               </tr></thead>
               <tbody>
-                {filteredMetrics.slice(0, metricsExpanded ? filteredMetrics.length : 15).map(([name, items]) => {
+                {displayMetrics.slice(0, metricsExpanded ? displayMetrics.length : 15).map(([name, items]) => {
                   const latest = getLatestValue(items);
                   const prev = getPrevValue(items);
                   const change = prev !== 0 ? Math.round((latest - prev) / prev * 100) : 0;
@@ -362,14 +382,14 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                 })}
               </tbody>
             </table>
-            {filteredMetrics.length > 15 && !metricsExpanded && (
+            {displayMetrics.length > 15 && !metricsExpanded && (
               <button onClick={() => setMetricsExpanded(true)}
                 className="text-xs mt-2 flex items-center gap-1 mx-auto font-medium"
                 style={{ color: 'var(--color-primary)' }}>
-                <ChevronDown className="w-3.5 h-3.5" /> Показать все ({filteredMetrics.length})
+                <ChevronDown className="w-3.5 h-3.5" /> Показать все ({displayMetrics.length})
               </button>
             )}
-            {metricsExpanded && filteredMetrics.length > 15 && (
+            {metricsExpanded && displayMetrics.length > 15 && (
               <button onClick={() => setMetricsExpanded(false)}
                 className="text-xs mt-2 flex items-center gap-1 mx-auto font-medium"
                 style={{ color: 'var(--color-text-muted)' }}>
