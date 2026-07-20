@@ -114,4 +114,22 @@ export const api = {
 
   /** Статистика по источникам */
   getSources: () => fetchJSON<SourceStats>('/sources'),
+
+  /** Извлечь метрики из статей через AI */
+  extractMetrics: (apiKey: string, params: { sourceIds?: string[]; daysBack: number }) =>
+    fetchJSON<{ extracted: number; errors: string[] }>('/metrics/extract', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey, ...params }),
+    }),
+
+  /** Получить AI-прогноз */
+  getForecast: (apiKey: string, daysBack: number) =>
+    fetchJSON<{ forecast: string }>('/forecast', {
+      method: 'POST',
+      body: JSON.stringify({ apiKey, daysBack }),
+    }),
+
+  /** История прогнозов */
+  getReports: (type?: string) =>
+    fetchJSON<{ reports: any[] }>(`/reports${type ? `?type=${type}` : ''}`),
 };

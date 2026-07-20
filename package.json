@@ -12,10 +12,14 @@
     "scrape": "tsx server/src/scraper/index.ts --cli"
   },
   "dependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node-cron": "^3.0.11",
+    "better-sqlite3": "^12.11.1",
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "fast-xml-parser": "^4.5.0",
+    "node-cron": "^4.6.0",
     "rss-parser": "^3.13.0"
   },
   "devDependencies": {

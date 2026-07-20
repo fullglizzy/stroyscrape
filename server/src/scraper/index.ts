@@ -4,7 +4,7 @@
 
 import { Article, ScrapeError, ScrapeStatus, ScraperResult } from '../types.js';
 import { SOURCES } from './config.js';
-import { readStatus, writeStatus, writeArticles } from './output.js';
+import { writeArticles, writeStatus, writeErrors } from '../db.js';
 import { BaseScraper } from './base.js';
 
 import { StroygazScraper } from './sources/stroygaz.js';
@@ -122,6 +122,9 @@ export async function runScrape(daysBack: number = 7, sourceId?: string): Promis
     // Инкрементально сохраняем статьи после каждого источника
     if (sourceArticles.length > 0) {
       writeArticles(sourceArticles);
+    }
+    if (scraper.getErrors().length > 0) {
+      writeErrors(scraper.getErrors());
     }
   }
 

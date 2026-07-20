@@ -6,9 +6,10 @@ import StatsBar from './components/StatsBar';
 import SourceFilter from './components/SourceFilter';
 import ArticleList from './components/ArticleList';
 import AISummarizer from './components/AISummarizer';
-import { Newspaper, Sparkles } from 'lucide-react';
+import { Newspaper, Sparkles, BarChart3 } from 'lucide-react';
+import AnalyticsDashboard from './components/AnalyticsDashboard';
 
-type Tab = 'news' | 'ai';
+type Tab = 'news' | 'ai' | 'analytics';
 
 export default function App() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -131,6 +132,19 @@ export default function App() {
             <Sparkles className="w-4 h-4" />
             AI Суммаризация
           </button>
+          <button
+            onClick={() => setTab('analytics')}
+            className={`
+              flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors
+              ${tab === 'analytics'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }
+            `}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Аналитика
+          </button>
         </div>
       </div>
 
@@ -173,9 +187,12 @@ export default function App() {
               </section>
             </div>
           </>
-        ) : (
+        ) : tab === 'ai' ? (
           /* AI Суммаризация */
           <AISummarizer sources={sources} />
+        ) : (
+          /* Аналитика */
+          <AnalyticsDashboard sources={sources} />
         )}
       </main>
 

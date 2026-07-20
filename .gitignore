@@ -1,9 +1,12 @@
 node_modules/
 dist/
 data/articles.json
+data/articles.json.bak
 data/status.json
+data/stroyscrape.db
 .env.local
 *.log
 .DS_Store
 .zcode/
 *.tsbuildinfo
+stroyscrape.db*
