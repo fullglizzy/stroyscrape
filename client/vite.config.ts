@@ -6,6 +6,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
+    host: '0.0.0.0',
+    allowedHosts: ['.tuna.am', 'localhost'],
     proxy: {
       '/api': 'http://localhost:3001',
     },
