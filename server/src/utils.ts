@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
  *   "20.07.2026"
  *   "20 июля 2026 14:32"
  *   "20 июл. 2026 г. 14:30"
+ *   "20 июля, понедельник" (без года — используется текущий)
  *   "2026-07-20T11:10:00+03:00" (уже ISO)
  */
 export function parseRussianDate(raw: string): string {
@@ -20,6 +21,12 @@ export function parseRussianDate(raw: string): string {
     return trimmed;
   }
 
+  // RFC 2822 (из RSS): "Mon, 20 Jul 2026 16:44:51 +0300"
+  const rfcMatch = trimmed.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/i);
+  if (rfcMatch) {
+    return new Date(trimmed).toISOString();
+  }
+
   // "DD.MM.YYYY"
   const dotMatch = trimmed.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
   if (dotMatch) {
@@ -27,7 +34,7 @@ export function parseRussianDate(raw: string): string {
     return `${y}-${m}-${d}T00:00:00+03:00`;
   }
 
-  // Русские месяцы: "20 июля 2026 14:32" или "20 июл. 2026 г. 14:30"
+  // Русские месяцы
   const ruMonths: Record<string, string> = {
     'января': '01', 'янв': '01',
     'февраля': '02', 'фев': '02',
@@ -43,6 +50,18 @@ export function parseRussianDate(raw: string): string {
     'декабря': '12', 'дек': '12',
   };
 
+  // "20 июля, понедельник" — без года, используем текущий
+  const noYearMatch = trimmed.match(
+    /^(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\.?|фев\.?|мар\.?|апр\.?|мая|июн\.?|июл\.?|авг\.?|сен\.?|окт\.?|ноя\.?|дек\.?)\s*,?\s*\S*/i
+  );
+  if (noYearMatch) {
+    const [, d, monthName] = noYearMatch;
+    const m = ruMonths[monthName.toLowerCase().replace(/\.$/, '')] || '01';
+    const y = new Date().getFullYear();
+    return `${y}-${m}-${String(d).padStart(2, '0')}T00:00:00+03:00`;
+  }
+
+  // "20 июля 2026 14:32" или "20 июл. 2026 г. 14:30"
   const ruMatch = trimmed.match(
     /^(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\.?|фев\.?|мар\.?|апр\.?|мая|июн\.?|июл\.?|авг\.?|сен\.?|окт\.?|ноя\.?|дек\.?)\s*(\d{4})(?:\s*г\.?)?(?:\s*(\d{1,2}):(\d{2}))?/i
   );
@@ -53,8 +72,8 @@ export function parseRussianDate(raw: string): string {
     return `${y}-${m}-${String(d).padStart(2, '0')}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+03:00`;
   }
 
-  // Fallback: вернуть как есть
-  return trimmed;
+  // Fallback: вернуть текущую дату
+  return new Date().toISOString();
 }
 
 /**

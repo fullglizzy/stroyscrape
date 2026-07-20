@@ -19,7 +19,7 @@ export default function App() {
     try {
       setLoading(true);
       const [articlesRes, statusRes, sourcesRes] = await Promise.all([
-        api.getArticles({ limit: 200 }),
+        api.getArticles({ limit: 500 }),
         api.getStatus(),
         api.getSources(),
       ]);
@@ -45,7 +45,7 @@ export default function App() {
         setStatus(s);
         if (!s.running) {
           // Парсинг завершился — обновляем статьи
-          const articlesRes = await api.getArticles({ limit: 200 });
+          const articlesRes = await api.getArticles({ limit: 500 });
           setArticles(articlesRes.articles);
           const sourcesRes = await api.getSources();
           setSources(sourcesRes);
