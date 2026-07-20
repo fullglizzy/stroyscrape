@@ -8,6 +8,7 @@ import {
 import MarkdownRenderer from './MarkdownRenderer';
 import { useToast } from '../ToastContext';
 import { EmptyState } from './ui';
+import InfoTip from './InfoTip';
 import { ExtractionProgress } from '../useAnalytics';
 
 interface Props {
@@ -173,7 +174,9 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
             <div className="w-10 h-10 rounded-xl flex items-center justify-center"
               style={{ background: 'var(--color-primary-bg)', color: 'var(--color-primary)' }}>
               <BarChart3 className="w-5 h-5" /></div>
-            <div><h2 className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>Аналитика рынка</h2>
+            <div><h2 className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>Аналитика рынка <InfoTip title="Обзор">
+              Главный экран мониторинга стройрынка. AI извлекает метрики из новостей (ставки, цены, спрос). Период: 24ч — оперативный срез, Год — стратегическая картина. «Метрики» — извлечь показатели, «Прогноз» — предсказание.
+            </InfoTip></h2>
               <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                 {total > 0
                   ? `${total} метрик • ${Object.keys(metricGroups).length} показателей`
@@ -213,7 +216,9 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
         <div className="card p-4 animate-slide-down" style={{ borderColor: 'var(--color-warning)' }}>
           <div className="flex items-center gap-2 mb-3">
             <Bell className="w-5 h-5" style={{ color: 'var(--color-warning)' }} />
-            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Срочные сигналы</h3>
+            <h3 className="font-semibold text-sm" style={{ color: 'var(--color-text)' }}>Срочные сигналы <InfoTip title="Сигналы">
+              AI находит метрики с резкими изменениями и связывает их с новостями. Красный — критический риск, жёлтый — важное изменение, синий — инфо. Клик по ссылке — открыть статью-источник.
+            </InfoTip></h3>
             <span className="badge" style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}>{alerts.length}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -319,7 +324,9 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
 
         {/* Segment bars */}
         <div className="card p-4 md:p-5">
-          <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>По сегментам</h3>
+          <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>По сегментам <InfoTip title="Сегменты">
+            Распределение метрик по сегментам рынка. Зелёные столбцы — рост показателей, красные — падение. Используйте фильтр «Сегмент» над таблицей для детального просмотра конкретного сегмента.
+          </InfoTip></h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {Object.entries(bySeg).map(([seg, d]) => {
               const st = d.up + d.down + d.flat;
@@ -342,7 +349,9 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
           <div className="card p-4 md:p-5 animate-fade-in">
             <div className="flex items-center gap-2 mb-3">
               <Target className="w-5 h-5" style={{ color: 'var(--color-warning)' }} />
-              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Официальные бенчмарки</h3>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Официальные бенчмарки <InfoTip title="Бенчмарки">
+                Данные ЦБ РФ (ключевая ставка, курс USD) и IRN.RU (цена м²). Эталон для проверки точности AI-метрик. ✓ — расхождение до 3% (доверять AI). Δ — расхождение более 3% (проверить). Обновляется раз в сутки.
+              </InfoTip></h3>
               <span className="badge" style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}>
                 ЦБ РФ · IRN.RU
               </span>
@@ -413,7 +422,9 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
         <div className="card p-4 md:p-5">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-              Метрики ({displayMetrics.length}{focusMode && metrics.length !== displayMetrics.length ? ` из ${metrics.length}` : ''})
+              Метрики ({displayMetrics.length}{focusMode && metrics.length !== displayMetrics.length ? ` из ${metrics.length}` : ''}) <InfoTip title="Метрики">
+                Каждая строка — показатель из новостей. Sparkline — тренд за 8 недель. Цветной кружок — достоверность AI (зелёный &gt;70%). Кнопка «Почему?» — AI объяснит причину изменения. Фильтры: Критические (&gt;5%), Сегмент, Регион.
+              </InfoTip>
             </h3>
             <div className="flex items-center gap-3">
               <button onClick={() => setFocusMode(!focusMode)}
@@ -593,7 +604,9 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
         <div className="card p-4 md:p-5 animate-slide-up" style={{ borderColor: 'var(--color-purple)', background: 'var(--color-purple-bg)' }}>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2"><Brain className="w-5 h-5" style={{ color: 'var(--color-purple)' }} />
-              <h3 className="font-semibold" style={{ color: 'var(--color-purple)' }}>AI-Прогноз на неделю</h3></div>
+              <h3 className="font-semibold" style={{ color: 'var(--color-purple)' }}>AI-Прогноз на неделю <InfoTip title="Прогноз">
+                Строится на истории метрик за 30 дней + свежих новостях. AI учитывает тренды, сезонность и взаимосвязи. Формат: что растёт ▲, что падает ▼, риски, рекомендации. Точность растёт с накоплением истории метрик.
+              </InfoTip></h3></div>
             <button onClick={() => setForecast(null)} className="text-xs underline" style={{ color: 'var(--color-text-muted)' }}>скрыть</button></div>
           <MarkdownRenderer text={forecast} /></div>
       )}
