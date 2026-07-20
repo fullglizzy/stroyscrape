@@ -42,6 +42,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
   const [interpreting, setInterpreting] = useState<string | null>(null);
   const [interpretations, setInterpretations] = useState<Record<string, string>>({});
   const [alerts, setAlerts] = useState<any[]>([]);
+  const [benchmarks, setBenchmarks] = useState<any[]>([]);
   const [alertsExpanded, setAlertsExpanded] = useState(false);
   const [metricsExpanded, setMetricsExpanded] = useState(false);
   const [segmentFilter, setSegmentFilter] = useState<string>('all');
@@ -51,8 +52,9 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
   const toast = useToast();
 
   useEffect(() => { loadMetrics(period); }, [period]);
-  useEffect(() => { loadAlerts(); }, []);
+  useEffect(() => { loadAlerts(); loadBenchmarks(); }, []);
   const loadAlerts = async () => { try { const r = await fetch('/api/alerts'); setAlerts((await r.json()).alerts || []); } catch { /* */ } };
+  const loadBenchmarks = async () => { try { const r = await fetch('/api/benchmarks'); setBenchmarks((await r.json()).benchmarks || []); } catch { /* */ } };
 
   // Group metrics
   const metricGroups: Record<string, any[]> = {};
@@ -334,6 +336,78 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
             })}
           </div>
         </div>
+
+        {/* Benchmarks */}
+        {benchmarks.length > 0 && (
+          <div className="card p-4 md:p-5 animate-fade-in">
+            <div className="flex items-center gap-2 mb-3">
+              <Target className="w-5 h-5" style={{ color: 'var(--color-warning)' }} />
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>Официальные бенчмарки</h3>
+              <span className="badge" style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}>
+                ЦБ РФ · IRN.RU
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Object.entries(
+                benchmarks.reduce((acc: Record<string, any>, b: any) => {
+                  if (!acc[b.indicator]) acc[b.indicator] = b;
+                  return acc;
+                }, {})
+              ).map(([key, b]: any) => {
+                // Find matching AI metric
+                const aiMatch = metrics.find((m: any) => {
+                  const map: Record<string, string[]> = {
+                    'key_rate': ['ипотечная ставка', 'ключевая ставка', 'ставка'],
+                    'usd_rate': ['курс доллара', 'курс usd'],
+                    'price_m2_msk': ['цена м²', 'стоимость м²', 'цена квадратного'],
+                  };
+                  return (map[key] || []).some(kw => m.metricName.toLowerCase().includes(kw));
+                });
+
+                const labelMap: Record<string, string> = {
+                  'key_rate': 'Ключевая ставка ЦБ',
+                  'usd_rate': 'Курс USD',
+                  'price_m2_msk': 'Цена м² (Москва)',
+                  'price_index': 'Индекс цен IRN',
+                };
+
+                return (
+                  <div key={key} className="p-3 rounded-lg" style={{ background: 'var(--color-bg)' }}>
+                    <div className="text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                      {labelMap[key] || key}
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>
+                        {b.value}{b.unit}
+                      </span>
+                      <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>офиц.</span>
+                    </div>
+                    {aiMatch && (
+                      <div className="flex items-baseline gap-1.5 mt-1">
+                        <span className="text-sm font-medium" style={{ color: 'var(--color-primary)' }}>
+                          {aiMatch.metricValue}{aiMatch.unit || b.unit}
+                        </span>
+                        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>AI</span>
+                        {(() => {
+                          const diff = parseFloat(aiMatch.metricValue) - b.value;
+                          const pct = b.value !== 0 ? Math.round((diff / b.value) * 100) : 0;
+                          if (Math.abs(pct) <= 3) return <span className="text-xs" style={{ color: 'var(--color-success)' }}>✓</span>;
+                          return <span className="text-xs" style={{ color: 'var(--color-danger)' }}>Δ{pct > 0 ? '+' : ''}{pct}%</span>;
+                        })()}
+                      </div>
+                    )}
+                    {!aiMatch && (
+                      <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Нет AI-данных для сверки</div>
+                    )}
+                    <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                      {b.date?.slice(0, 10)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* METRICS TABLE — главный блок */}
         <div className="card p-4 md:p-5">

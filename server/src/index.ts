@@ -10,6 +10,7 @@ import scraperRoutes from './routes/scraper.js';
 import summarizeRoutes from './routes/summarize.js';
 import { readStatus, writeStatus, getDb } from './db.js';
 import { runScrape } from './scraper/index.js';
+import { refreshBenchmarks } from './benchmarks.js';
 import cron from 'node-cron';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,6 +51,11 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`\n🔨 Stroyscrape server running at http://localhost:${PORT}`);
+
+  // Бенчмарки при старте
+  refreshBenchmarks().catch(() => {});
+  // И раз в сутки
+  cron.schedule('0 6 * * *', () => refreshBenchmarks().catch(() => {}));
 
   // Автопарсинг по расписанию: каждые 3 часа
   if (process.env.AUTO_SCRAPE !== 'false') {

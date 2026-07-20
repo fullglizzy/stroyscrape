@@ -4,6 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import { readArticles, readMetrics, saveReport, writeMetrics, getMetricsTrend, readReports, Metric } from '../db.js';
+import { readBenchmarks, refreshBenchmarks } from '../benchmarks.js';
 
 const router = Router();
 const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
@@ -378,6 +379,24 @@ router.get('/alerts', (_req: Request, res: Response) => {
   });
 
   res.json({ alerts, generatedAt: new Date().toISOString() });
+});
+
+// GET /api/benchmarks — официальные бенчмарки
+router.get('/benchmarks', (req: Request, res: Response) => {
+  const indicator = req.query.indicator as string | undefined;
+  const daysBack = parseInt(req.query.days as string, 10) || 90;
+  const benchmarks = readBenchmarks(indicator, daysBack);
+  res.json({ benchmarks });
+});
+
+// POST /api/benchmarks/refresh — принудительное обновление
+router.post('/benchmarks/refresh', async (_req: Request, res: Response) => {
+  try {
+    const results = await refreshBenchmarks();
+    res.json({ ok: true, updated: results.length, benchmarks: results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
