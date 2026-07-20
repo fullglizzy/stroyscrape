@@ -573,7 +573,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
                       <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
                         <td colSpan={5} className="py-2 px-4 animate-slide-down">
                           <div className="text-xs leading-relaxed p-2 rounded" style={{ background: 'var(--color-success-bg)', color: 'var(--color-text-secondary)' }}>
-                            <span className="font-medium" style={{ color: 'var(--color-success)' }}>💡 {name}:</span> {interp}</div>
+                            <span className="font-medium" style={{ color: 'var(--color-success)' }}>💡 {name}:</span> <MarkdownRenderer text={interp} /></div>
                         </td>
                       </tr>
                     )}
