@@ -8,7 +8,7 @@
     "dev:server": "tsx watch server/src/index.ts",
     "dev:client": "cd client && npm run dev",
     "build": "cd client && npm run build",
-    "start": "tsx server/src/index.ts",
+    "start": "npm run build && tsx server/src/index.ts",
     "scrape": "tsx server/src/scraper/index.ts --cli"
   },
   "dependencies": {

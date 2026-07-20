@@ -5,6 +5,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import scraperRoutes from './routes/scraper.js';
 import summarizeRoutes, { EXTRACT_METRICS_PROMPT } from './routes/summarize.js';
@@ -38,15 +39,33 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api', scraperRoutes);
 app.use('/api', summarizeRoutes);
 
-const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
-app.use(express.static(clientDist));
+// Health check
+app.get('/api/health', (_req, res) => res.json({ ok: true, uptime: process.uptime() }));
 
+// Статика React (production)
+const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  console.log('📦 Статика: client/dist найден');
+} else {
+  console.log('⚠️ client/dist не найден — запустите npm run build');
+}
+
+// SPA fallback
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api')) {
     res.status(404).json({ error: 'Not found' });
     return;
   }
-  res.sendFile(path.join(clientDist, 'index.html'));
+  const indexPath = path.join(clientDist, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.type('html').send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>СтройПарсер</title></head>
+      <body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;background:#f8fafc;color:#475569">
+      <div style="text-align:center"><h1 style="font-size:2rem">🏗️ СтройПарсер</h1><p>Сервер запущен. Выполните <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px">npm run build</code> для сборки интерфейса.</p>
+      <p>API: <a href="/api/health" style="color:#2563eb">/api/health</a></p></div></body></html>`);
+  }
 });
 
 app.listen(PORT, () => {
