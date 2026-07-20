@@ -7,6 +7,7 @@ import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import scraperRoutes from './routes/scraper.js';
+import { readStatus, writeStatus } from './scraper/output.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,6 +34,15 @@ app.get('*', (req, res) => {
   }
   res.sendFile(path.join(clientDist, 'index.html'));
 });
+
+// Сбрасываем зависший статус (если сервер упал во время парсинга)
+const staleStatus = readStatus();
+if (staleStatus.running) {
+  console.log('⚠️ Обнаружен зависший статус парсинга — сбрасываю');
+  staleStatus.running = false;
+  staleStatus.progress.currentStep = 'Сброшено при перезапуске сервера';
+  writeStatus(staleStatus);
+}
 
 app.listen(PORT, () => {
   console.log(`\n🔨 Stroyscrape server running at http://localhost:${PORT}`);

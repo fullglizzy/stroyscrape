@@ -25,7 +25,7 @@ export class MosStroinadzorScraper extends BaseScraper {
 
         await this.delay();
 
-        const res = await fetch(listUrl, {
+        const res = await this.fetch(listUrl, {
           headers: {
             'User-Agent': GOOGLEBOT_UA,
           },
@@ -83,7 +83,7 @@ export class MosStroinadzorScraper extends BaseScraper {
   }
 
   private async fetchArticle(url: string): Promise<Article | null> {
-    const res = await fetch(url, {
+    const res = await this.fetch(url, {
       headers: { 'User-Agent': GOOGLEBOT_UA },
     });
 

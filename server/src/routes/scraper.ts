@@ -4,12 +4,12 @@
 
 import { Router, Request, Response } from 'express';
 import { readArticles, readStatus, writeStatus } from '../scraper/output.js';
-import { runScrape } from '../scraper/index.js';
+import { runScrape, stopScrape } from '../scraper/index.js';
 
 const router = Router();
 
-// POST /api/scrape — запустить парсинг
-router.post('/scrape', async (_req: Request, res: Response) => {
+// POST /api/scrape — запустить парсинг (всех или одного источника)
+router.post('/scrape', async (req: Request, res: Response) => {
   const status = readStatus();
 
   if (status.running) {
@@ -17,13 +17,21 @@ router.post('/scrape', async (_req: Request, res: Response) => {
     return;
   }
 
+  const { source } = req.body as { source?: string };
+
   // Запускаем асинхронно — не ждём завершения
-  res.json({ ok: true, message: 'Парсинг запущен' });
+  res.json({
+    ok: true,
+    message: source
+      ? `Парсинг источника "${source}" запущен`
+      : 'Парсинг всех источников запущен',
+    source: source || null,
+  });
 
   const daysBack = parseInt(process.env.DAYS_BACK || '7', 10);
 
   try {
-    await runScrape(daysBack);
+    await runScrape(daysBack, source);
   } catch (err: any) {
     console.error('Ошибка парсинга:', err.message);
     const s = readStatus();
@@ -40,6 +48,31 @@ router.post('/scrape', async (_req: Request, res: Response) => {
 // GET /api/scrape/status — статус парсинга
 router.get('/scrape/status', (_req: Request, res: Response) => {
   res.json(readStatus());
+});
+
+// POST /api/scrape/stop — остановить парсинг
+router.post('/scrape/stop', (_req: Request, res: Response) => {
+  const stopped = stopScrape();
+  if (stopped) {
+    const s = readStatus();
+    s.running = false;
+    s.progress.currentStep = 'Остановлено пользователем';
+    writeStatus(s);
+    res.json({ ok: true, message: 'Парсинг остановлен' });
+  } else {
+    res.status(404).json({ error: 'Нет активного парсинга' });
+  }
+});
+
+// POST /api/scrape/reset — сбросить зависший статус
+router.post('/scrape/reset', (_req: Request, res: Response) => {
+  stopScrape(); // на всякий случай
+  const s = readStatus();
+  s.running = false;
+  s.errors = [];
+  s.progress.currentStep = 'Сброшено';
+  writeStatus(s);
+  res.json({ ok: true, message: 'Статус сброшен' });
 });
 
 // GET /api/articles — все статьи (с фильтрацией)

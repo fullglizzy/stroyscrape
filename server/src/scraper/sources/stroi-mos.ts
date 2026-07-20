@@ -14,7 +14,7 @@ export class StroiMosScraper extends BaseScraper {
 
     try {
       // 1. Sitemap index → найти post sitemap
-      const idxRes = await fetch(this.config.sitemapUrl!);
+      const idxRes = await this.fetch(this.config.sitemapUrl!);
       const idxXml = await idxRes.text();
 
       const parser = new XMLParser({ ignoreAttributes: false });
@@ -31,7 +31,7 @@ export class StroiMosScraper extends BaseScraper {
       }
 
       // 2. Загрузить post sitemap (возможно gzip)
-      const postRes = await fetch(postSitemap);
+      const postRes = await this.fetch(postSitemap);
       let postXml: string;
 
       if (postSitemap.endsWith('.gz')) {
@@ -73,7 +73,7 @@ export class StroiMosScraper extends BaseScraper {
   }
 
   private async fetchArticle(url: string): Promise<Article | null> {
-    const res = await fetch(url);
+    const res = await this.fetch(url);
     if (!res.ok) {
       this.logError(`HTTP ${res.status}`, url);
       return null;

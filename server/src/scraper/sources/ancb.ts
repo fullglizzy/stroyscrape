@@ -34,7 +34,7 @@ export class AncbScraper extends BaseScraper {
 
         let res: Response;
         try {
-          res = await fetch(url, {
+          res = await this.fetch(url, {
             signal: controller.signal,
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
           });
@@ -120,7 +120,7 @@ export class AncbScraper extends BaseScraper {
 
     let res: Response;
     try {
-      res = await fetch(url, {
+      res = await this.fetch(url, {
         signal: controller.signal,
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       });

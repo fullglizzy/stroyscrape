@@ -22,7 +22,7 @@ export class MinstroyrfScraper extends BaseScraper {
 
         await this.delay();
 
-        const res = await fetch(url, {
+        const res = await this.fetch(url, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         });
 
@@ -91,7 +91,7 @@ export class MinstroyrfScraper extends BaseScraper {
   }
 
   private async fetchArticle(url: string): Promise<Article | null> {
-    const res = await fetch(url);
+    const res = await this.fetch(url);
     if (!res.ok) {
       this.logError(`HTTP ${res.status}`, url);
       return null;

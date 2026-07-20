@@ -15,7 +15,7 @@ export class MperspektivaScraper extends BaseScraper {
 
     try {
       // 1. Sitemap index → найти iblock-1
-      const idxRes = await fetch(this.config.sitemapUrl!);
+      const idxRes = await this.fetch(this.config.sitemapUrl!);
       const idxXml = await idxRes.text();
 
       const parser = new XMLParser({ ignoreAttributes: false });
@@ -43,7 +43,7 @@ export class MperspektivaScraper extends BaseScraper {
       for (const smUrl of newsSitemaps) {
         try {
           console.log(`[mperspektiva] Загрузка sitemap: ${smUrl}`);
-          const smRes = await fetch(smUrl);
+          const smRes = await this.fetch(smUrl);
           if (!smRes.ok) {
             this.logError(`Sitemap HTTP ${smRes.status}`, smUrl);
             continue;
@@ -99,7 +99,7 @@ export class MperspektivaScraper extends BaseScraper {
 
     let res: Response;
     try {
-      res = await fetch(url, {
+      res = await this.fetch(url, {
         signal: controller.signal,
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       });

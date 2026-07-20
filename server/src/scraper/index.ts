@@ -17,6 +17,19 @@ import { MinstroyrfScraper } from './sources/minstroyrf.js';
 import { AncbScraper } from './sources/ancb.js';
 import { MosStroinadzorScraper } from './sources/mos-stroinadzor.js';
 
+/** Глобальный AbortController для остановки парсинга */
+let currentAbortController: AbortController | null = null;
+
+/** Остановить текущий парсинг */
+export function stopScrape(): boolean {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+    return true;
+  }
+  return false;
+}
+
 /** Фабрика: создать scraper по конфигу */
 function createScraper(config: (typeof SOURCES)[number]): BaseScraper {
   switch (config.id) {
@@ -33,17 +46,30 @@ function createScraper(config: (typeof SOURCES)[number]): BaseScraper {
   }
 }
 
-/** Основная функция: запустить парсинг всех источников */
-export async function runScrape(daysBack: number = 7): Promise<ScraperResult[]> {
+/** Основная функция: запустить парсинг всех или одного источника */
+export async function runScrape(daysBack: number = 7, sourceId?: string): Promise<ScraperResult[]> {
+  const sourcesToRun = sourceId
+    ? SOURCES.filter(s => s.id === sourceId)
+    : SOURCES;
+
+  if (sourcesToRun.length === 0) {
+    console.error(`Источник "${sourceId}" не найден`);
+    return [];
+  }
+
+  // Создаём новый AbortController
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
+
   const status: ScrapeStatus = {
     running: true,
     startedAt: new Date().toISOString(),
     progress: {
-      totalSources: SOURCES.length,
+      totalSources: sourcesToRun.length,
       doneSources: 0,
       totalArticles: 0,
       currentSource: '',
-      currentStep: 'Начинаю парсинг...',
+      currentStep: `Начинаю парсинг${sourceId ? ` источника ${sourceId}` : ''}...`,
     },
     lastRun: null,
     errors: [],
@@ -53,14 +79,21 @@ export async function runScrape(daysBack: number = 7): Promise<ScraperResult[]> 
   const results: ScraperResult[] = [];
   const allArticles: Article[] = [];
 
-  // Запускаем scraper'ы последовательно (не параллельно — чтобы не нагружать сеть)
-  for (const sourceConfig of SOURCES) {
+  // Запускаем scraper'ы последовательно
+  for (const sourceConfig of sourcesToRun) {
+    // Проверяем, не запрошена ли остановка
+    if (signal.aborted) {
+      console.log('[orchestrator] Парсинг остановлен пользователем');
+      status.progress.currentStep = 'Остановлено пользователем';
+      break;
+    }
     status.progress.currentSource = sourceConfig.name;
     status.progress.currentStep = `Парсинг ${sourceConfig.name}...`;
     writeStatus(status);
 
     console.log(`[${sourceConfig.id}] Запуск парсинга...`);
     const scraper = createScraper(sourceConfig);
+    scraper.setSignal(signal); // Передаём сигнал для остановки
 
     let sourceArticles: Article[] = [];
 
@@ -96,8 +129,10 @@ export async function runScrape(daysBack: number = 7): Promise<ScraperResult[]> 
   status.running = false;
   status.lastRun = new Date().toISOString();
   status.progress.currentSource = '';
-  status.progress.currentStep = 'Готово';
+  status.progress.currentStep = signal.aborted ? 'Остановлено пользователем' : 'Готово';
   writeStatus(status);
+
+  currentAbortController = null;
 
   console.log(`\nВсего собрано: ${allArticles.length} статей с ${SOURCES.length} источников`);
   return results;

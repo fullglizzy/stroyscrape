@@ -57,9 +57,31 @@ export default function App() {
   }, [status?.running]);
 
   // Запуск парсинга
-  const handleStartScrape = async () => {
+  const handleStartScrape = async (sourceId?: string) => {
     try {
-      await api.startScrape();
+      await api.startScrape(sourceId);
+      const s = await api.getStatus();
+      setStatus(s);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  // Остановка парсинга
+  const handleStopScrape = async () => {
+    try {
+      await api.stopScrape();
+      const s = await api.getStatus();
+      setStatus(s);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  // Сброс зависшего статуса
+  const handleResetStatus = async () => {
+    try {
+      await api.resetScrape();
       const s = await api.getStatus();
       setStatus(s);
     } catch (err: any) {
@@ -80,7 +102,10 @@ export default function App() {
         {/* Панель управления парсингом */}
         <ScraperPanel
           status={status}
+          sources={sources}
           onStartScrape={handleStartScrape}
+          onStopScrape={handleStopScrape}
+          onResetStatus={handleResetStatus}
           onRefresh={loadData}
           loading={loading}
         />

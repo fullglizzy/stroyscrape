@@ -14,7 +14,7 @@ export class IrnScraper extends BaseScraper {
 
     try {
       // 1. Получить sitemap
-      const sitemapRes = await fetch(this.config.sitemapUrl!);
+      const sitemapRes = await this.fetch(this.config.sitemapUrl!);
       const sitemapXml = await sitemapRes.text();
 
       const parser = new XMLParser({ ignoreAttributes: false });
@@ -49,7 +49,7 @@ export class IrnScraper extends BaseScraper {
   }
 
   private async fetchArticle(url: string): Promise<Article | null> {
-    const res = await fetch(url);
+    const res = await this.fetch(url);
     if (!res.ok) {
       this.logError(`HTTP ${res.status}`, url);
       return null;

@@ -25,7 +25,7 @@ export class RcmmScraper extends BaseScraper {
     try {
       // rss-parser не поддерживает кастомные заголовки напрямую,
       // поэтому делаем fetch с cookie и парсим тело
-      const res = await fetch(this.config.rssUrl!, {
+      const res = await this.fetch(this.config.rssUrl!, {
         headers: {
           Cookie: this.config.cookie || '',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',

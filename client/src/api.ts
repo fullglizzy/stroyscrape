@@ -61,8 +61,20 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  /** Запустить парсинг */
-  startScrape: () => fetchJSON<{ ok: boolean; message: string }>('/scrape', { method: 'POST' }),
+  /** Запустить парсинг (всех или одного источника) */
+  startScrape: (source?: string) =>
+    fetchJSON<{ ok: boolean; message: string; source: string | null }>('/scrape', {
+      method: 'POST',
+      body: JSON.stringify({ source: source || undefined }),
+    }),
+
+  /** Остановить парсинг */
+  stopScrape: () =>
+    fetchJSON<{ ok: boolean; message: string }>('/scrape/stop', { method: 'POST' }),
+
+  /** Сбросить зависший статус */
+  resetScrape: () =>
+    fetchJSON<{ ok: boolean; message: string }>('/scrape/reset', { method: 'POST' }),
 
   /** Статус парсинга */
   getStatus: () => fetchJSON<ScrapeStatus>('/scrape/status'),
