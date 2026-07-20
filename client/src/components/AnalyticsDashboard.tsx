@@ -41,6 +41,8 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
   const [interpreting, setInterpreting] = useState<string | null>(null);
   const [interpretations, setInterpretations] = useState<Record<string, string>>({});
   const [alerts, setAlerts] = useState<any[]>([]);
+  const [alertsExpanded, setAlertsExpanded] = useState(false);
+  const [metricsExpanded, setMetricsExpanded] = useState(false);
   const [sparklines, setSparklines] = useState<Record<string, { sparkline: any[]; direction: string }>>({});
 
   const toast = useToast();
@@ -182,7 +184,7 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
             <span className="badge" style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}>{alerts.length}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {alerts.slice(0, 4).map((a, i) => (
+            {(alertsExpanded ? alerts : alerts.slice(0, 4)).map((a, i) => (
               <div key={i} className="flex items-start gap-2 p-2 rounded-lg" style={{ background: 'var(--color-bg)' }}>
                 {a.direction === 'up' ? <TrendingUp className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-success)' }} />
                   : <TrendingDown className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--color-danger)' }} />}
@@ -193,6 +195,13 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                 </div>
               </div>
             ))}
+            {alerts.length > 4 && (
+              <button onClick={() => setAlertsExpanded(!alertsExpanded)}
+                className="col-span-full text-xs font-medium mt-1 flex items-center gap-1"
+                style={{ color: 'var(--color-primary)' }}>
+                {alertsExpanded ? <><ChevronUp className="w-3 h-3" /> Свернуть</> : <><ChevronDown className="w-3 h-3" /> Показать все ({alerts.length})</>}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -281,7 +290,15 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                   className="btn-ghost text-xs">Сбросить</button>
               </div>
               {whatIfResult && (
-                <div className="mt-3 text-sm" style={{ color: 'var(--color-text)' }}>
+                <div className="mt-3 p-4 rounded-lg text-sm" style={{
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text)',
+                  boxShadow: 'var(--shadow-sm)',
+                }}>
+                  <div className="text-xs font-medium mb-2 flex items-center gap-1" style={{ color: 'var(--color-purple)' }}>
+                    <Brain className="w-3.5 h-3.5" /> Результат сценария
+                  </div>
                   <MarkdownRenderer text={whatIfResult} /></div>
               )}
             </div>
@@ -298,7 +315,7 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                 <th className="text-center py-2 px-2 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Драйверы</th>
               </tr></thead>
               <tbody>
-                {filteredMetrics.slice(0, 30).map(([name, items]) => {
+                {filteredMetrics.slice(0, metricsExpanded ? filteredMetrics.length : 15).map(([name, items]) => {
                   const latest = getLatestValue(items);
                   const prev = getPrevValue(items);
                   const change = prev !== 0 ? Math.round((latest - prev) / prev * 100) : 0;
@@ -322,8 +339,12 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                       <td className="py-2 px-2 hidden md:table-cell" style={{ color: 'var(--color-text-muted)' }}>{segLabels[items[0]?.segment] || items[0]?.segment}</td>
                       <td className="py-2 px-2 text-center">
                         <button onClick={() => interp ? setInterpretations(prev => { const n={...prev}; delete n[name]; return n; }) : handleInterpret(name, String(latest), direction)}
-                          className="inline-flex items-center gap-1 text-xs font-medium transition-colors"
-                          style={{ color: interp ? 'var(--color-success)' : 'var(--color-text-muted)' }}>
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all border"
+                          style={{
+                            color: interp ? 'var(--color-success)' : 'var(--color-primary)',
+                            background: interp ? 'var(--color-success-bg)' : 'var(--color-primary-bg)',
+                            borderColor: interp ? 'var(--color-success)' : 'var(--color-primary)',
+                          }}>
                           {interpreting === name ? <Loader2 className="w-3 h-3 animate-spin" /> : <HelpCircle className="w-3.5 h-3.5" />}
                           {interp ? 'Скрыть' : 'Почему?'}
                         </button>
@@ -341,9 +362,19 @@ export default function AnalyticsDashboard({ sources, analytics }: Props) {
                 })}
               </tbody>
             </table>
-            {filteredMetrics.length > 30 && (
-              <div className="text-xs text-center mt-2" style={{ color: 'var(--color-text-muted)' }}>
-                Показаны первые 30 из {filteredMetrics.length}</div>
+            {filteredMetrics.length > 15 && !metricsExpanded && (
+              <button onClick={() => setMetricsExpanded(true)}
+                className="text-xs mt-2 flex items-center gap-1 mx-auto font-medium"
+                style={{ color: 'var(--color-primary)' }}>
+                <ChevronDown className="w-3.5 h-3.5" /> Показать все ({filteredMetrics.length})
+              </button>
+            )}
+            {metricsExpanded && filteredMetrics.length > 15 && (
+              <button onClick={() => setMetricsExpanded(false)}
+                className="text-xs mt-2 flex items-center gap-1 mx-auto font-medium"
+                style={{ color: 'var(--color-text-muted)' }}>
+                <ChevronUp className="w-3.5 h-3.5" /> Свернуть
+              </button>
             )}
           </div>
         </div>
