@@ -123,6 +123,9 @@ export default function Overview({ sources, metrics, forecast, onNavigate, onExt
             <QuickAction icon={<Brain className="w-5 h-5" />} label="Прогноз" desc={forecast ? 'Готов' : 'Сгенерировать'}
               color="var(--color-purple)" onClick={() => onNavigate('analytics')} />
           </div>
+
+          {/* Data quality overview */}
+          <DataQualityPanel />
         </>
       )}
     </div>
@@ -209,6 +212,43 @@ function AlertsPreview({ alerts, onNavigate }: { alerts: any[]; onNavigate: (s: 
             borderLeft: `3px solid ${a.severity === 'critical' ? 'var(--color-danger)' : a.severity === 'warning' ? 'var(--color-warning)' : 'var(--color-primary)'}`,
           }}>
             <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{a.metric}: {a.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DataQualityPanel() {
+  const [quality, setQuality] = useState<any[]>([]);
+  const [summary, setSummary] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/metrics/quality').then(r => r.json()).then(d => {
+      setQuality(d.quality || []);
+      setSummary(d.summary);
+    }).catch(() => {});
+  }, []);
+
+  if (!summary || quality.length === 0) return null;
+
+  return (
+    <div className="card p-4 md:p-5">
+      <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>Качество данных</h3>
+      <div className="flex items-center gap-4 text-xs mb-3 flex-wrap" style={{ color: 'var(--color-text-muted)' }}>
+        <span>📊 {summary.totalMetrics} метрик</span>
+        <span>📰 {summary.totalArticles} статей</span>
+        <span>🎯 {summary.uniqueMetrics} уникальных</span>
+        <span>✅ {summary.avgConfidence}% средняя достоверность</span>
+      </div>
+      <div className="space-y-1.5">
+        {quality.slice(0, 6).map((q: any) => (
+          <div key={q.source} className="flex items-center gap-2 text-xs p-2 rounded" style={{ background: 'var(--color-bg)' }}>
+            <span className="flex-1 truncate font-medium" style={{ color: 'var(--color-text)' }}>{q.sourceName}</span>
+            <span style={{ color: 'var(--color-text-muted)' }}>{q.metricCount} метрик</span>
+            <span className="w-16 text-right" style={{ color: q.avgConfidence >= 70 ? 'var(--color-success)' : q.avgConfidence >= 50 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
+              {q.avgConfidence}%
+            </span>
           </div>
         ))}
       </div>

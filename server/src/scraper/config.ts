@@ -116,7 +116,7 @@ const ALL_SOURCES: SourceConfig[] = [
     selectors: {
       articleLink: 'a[href^="/news/read/"]',
       title: 'h1',
-      date: 'time, .date, span:contains(".")',
+      date: 'time, .date',
       body: '.news-text, article, .content',
     },
     requestDelay: 1500,

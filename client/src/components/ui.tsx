@@ -44,7 +44,7 @@ export function EmptyState({ icon, title, description, action }: {
 }) {
   return (
     <div className="card p-12 text-center animate-fade-in">
-      <div className="mx-auto mb-4 opacity-30">{icon}</div>
+      <div className="flex justify-center mb-4 opacity-30">{icon}</div>
       <h3 className="text-lg font-semibold mb-1" style={{ color: 'var(--color-text)' }}>{title}</h3>
       <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>{description}</p>
       {action}

@@ -36,9 +36,10 @@ export class MperspektivaScraper extends BaseScraper {
 
       console.log(`[mperspektiva] Найдено ${newsSitemaps.length} sitemap(ов) с новостями`);
 
-      // 2. Загрузить каждый news sitemap и собрать URL'ы
+      // 2. Загрузить каждый news sitemap и собрать URL'ы (фильтруем по дате сразу)
       const allLoc = new Set<string>();
       const urlEntries: { loc: string; lastmod: string }[] = [];
+      let totalUrls = 0;
 
       for (const smUrl of newsSitemaps) {
         try {
@@ -57,35 +58,38 @@ export class MperspektivaScraper extends BaseScraper {
               lastmod: u.lastmod || '',
             })) || [];
 
+          let kept = 0;
           for (const u of urls) {
-            if (!allLoc.has(u.loc)) {
+            totalUrls++;
+            if (!allLoc.has(u.loc) && u.loc.includes('/topics/') && this.isWithinDays(parseRussianDate(u.lastmod), daysBack)) {
               allLoc.add(u.loc);
               urlEntries.push(u);
+              kept++;
             }
           }
-          console.log(`[mperspektiva] +${urls.length} URL из sitemap`);
+          console.log(`[mperspektiva] +${kept} статей за период (из ${urls.length} URL в sitemap)`);
         } catch (err: any) {
           this.logError(`Sitemap error: ${err.message}`, smUrl);
         }
       }
 
-      // 3. Фильтровать /topics/ и дату
-      const filtered = urlEntries.filter(
-        u => u.loc.includes('/topics/') && this.isWithinDays(parseRussianDate(u.lastmod), daysBack)
-      );
+      console.log(`[mperspektiva] Всего URL в sitemap: ${totalUrls}, подходящих: ${urlEntries.length}`);
 
-      console.log(`[mperspektiva] После фильтрации по дате: ${filtered.length} статей`);
-
-      // 4. Спарсить каждую
-      for (const { loc } of filtered) {
-        try {
-          await this.delay();
-          const article = await this.fetchArticle(loc);
-          if (article) articles.push(article);
-        } catch (err: any) {
-          this.logError(err.message, loc);
-        }
-      }
+      // 3. Спарсить каждую
+      console.log(`[mperspektiva] Начинаю загрузку ${urlEntries.length} статей...`);
+      let fetched = 0;
+	      for (const { loc } of urlEntries) {
+	        try {
+	          await this.delay();
+	          const article = await this.fetchArticle(loc);
+	          if (article) { articles.push(article); fetched++; }
+	        } catch (err: any) {
+	          this.logError(err.message, loc);
+	        }
+	        if (fetched % 20 === 0 && fetched > 0) {
+	          console.log(`[mperspektiva] Загружено: ${fetched}/${urlEntries.length}`);
+	        }
+	      }
     } catch (err: any) {
       this.logError(`Sitemap error: ${err.message}`);
     }

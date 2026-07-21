@@ -5,11 +5,20 @@
 import { Router, Request, Response } from 'express';
 import { readArticles, readMetrics, saveReport, writeMetrics, getMetricsTrend, readReports, readArticleById, Metric } from '../db.js';
 import { readBenchmarks, refreshBenchmarks } from '../benchmarks.js';
+import { validateInt, validateStringArray, validateString } from '../validation.js';
+import { clusterMetricNames } from '../normalize.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
 
 // ==================== Progress tracking ====================
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+const DATA_DIR = process.env.DATA_DIR || './data';
+const JOBS_FILE = path.join(DATA_DIR, 'jobs.json');
 
 interface JobProgress {
   id: string;
@@ -23,21 +32,57 @@ interface JobProgress {
   result?: string;
 }
 
-const jobs = new Map<string, JobProgress>();
+// Загружаем jobs из файла (переживают перезапуск сервера)
+function loadJobs(): Map<string, JobProgress> {
+  try {
+    if (fs.existsSync(JOBS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf-8'));
+      const map = new Map<string, JobProgress>();
+      for (const [k, v] of Object.entries(data)) {
+        map.set(k, v as JobProgress);
+      }
+      // Помечаем running-джобы как error (сервер был перезапущен)
+      for (const [, job] of map) {
+        if (job.status === 'running') {
+          job.status = 'error';
+          job.error = 'Сервер был перезапущен во время выполнения';
+        }
+      }
+      return map;
+    }
+  } catch { /* ignore corrupt file */ }
+  return new Map();
+}
+
+function saveJobs(jobs: Map<string, JobProgress>) {
+  try {
+    const dir = path.dirname(JOBS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const obj: Record<string, JobProgress> = {};
+    for (const [k, v] of jobs) obj[k] = v;
+    fs.writeFileSync(JOBS_FILE, JSON.stringify(obj), 'utf-8');
+  } catch { /* ignore write errors */ }
+}
+
+const jobs = loadJobs();
 
 function createJob(type: 'metrics' | 'forecast', total: number): string {
   const id = `${type}_${Date.now()}`;
   jobs.set(id, { id, type, status: 'running', total, done: 0, currentItem: '', startedAt: new Date().toISOString() });
+  saveJobs(jobs);
   return id;
 }
 
 function updateJob(id: string, update: Partial<JobProgress>) {
   const job = jobs.get(id);
   if (job) Object.assign(job, update);
-  // Очистка старых джобов (>5 мин)
+  // Очистка старых джобов (>30 мин) и сохранение
+  let changed = false;
   for (const [k, v] of jobs) {
-    if (Date.now() - new Date(v.startedAt).getTime() > 300000) jobs.delete(k);
+    if (Date.now() - new Date(v.startedAt).getTime() > 1_800_000) { jobs.delete(k); changed = true; }
   }
+  if (update.status === 'done' || update.status === 'error') changed = true;
+  if (changed) saveJobs(jobs);
 }
 
 // ==================== Промпты ====================
@@ -120,22 +165,34 @@ function getApiKey(): string {
 
 async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens: number = 2000): Promise<string> {
   const apiKey = getApiKey();
-  const res = await fetch(DEEPSEEK_API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      max_tokens: maxTokens,
-      temperature: 0.3,
-    }),
-  });
-  if (!res.ok) { const err = await res.text(); throw new Error(`DeepSeek API ${res.status}: ${err.slice(0, 200)}`); }
-  const data = await res.json() as any;
-  return data.choices?.[0]?.message?.content || '';
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  try {
+    const res = await fetch(DEEPSEEK_API, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: maxTokens,
+        temperature: 0.3,
+      }),
+    });
+    clearTimeout(timeout);
+    if (!res.ok) { const err = await res.text(); throw new Error(`DeepSeek API ${res.status}: ${err.slice(0, 200)}`); }
+    const data = await res.json() as any;
+    return data.choices?.[0]?.message?.content || '';
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') throw new Error('DeepSeek API: превышен таймаут (60с)');
+    throw err;
+  }
 }
 
 // ==================== Endpoints ====================
@@ -143,20 +200,21 @@ async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens:
 // POST /api/summarize/sources — сводка по источникам за период
 router.post('/summarize/sources', async (req: Request, res: Response) => {
   try {
-    getApiKey(); // проверим что ключ есть
+    getApiKey();
   } catch (e: any) { res.status(500).json({ error: e.message }); return; }
 
-  const { sourceIds, daysBack, maxLength } = req.body as any;
+  const sourceIds = validateStringArray(req.body.sourceIds, 10, 50);
+  const daysBack = validateInt(req.body.daysBack, 1, 30, 7);
+  const maxLength = validateInt(req.body.maxLength, 100, 1000, 400);
 
-  const days = daysBack || 7;
-  const { articles } = readArticles(undefined, days, 1000, 0);
+  const { articles } = readArticles(undefined, daysBack, 1000, 0);
 
   if (articles.length === 0) {
     res.json({ summaries: [], message: 'Нет статей за выбранный период' });
     return;
   }
 
-  const filtered = sourceIds?.length ? articles.filter((a: any) => sourceIds.includes(a.source)) : articles;
+  const filtered = sourceIds.length ? articles.filter((a: any) => sourceIds.includes(a.source)) : articles;
   const bySource: Record<string, { name: string; articles: typeof articles }> = {};
   for (const a of filtered) {
     if (!bySource[a.source]) bySource[a.source] = { name: a.sourceName, articles: [] };
@@ -168,7 +226,7 @@ router.post('/summarize/sources', async (req: Request, res: Response) => {
     try {
       group.articles.sort((a: any, b: any) => b.publishedAt.localeCompare(a.publishedAt));
       const text = group.articles.map((a: any, i: number) => `${i + 1}. ${a.title}\n${a.bodyText.slice(0, 600).trim()}`).join('\n\n');
-      const prompt = `Сводка по "${group.name}" за ${days} дн. (${group.articles.length} новостей). Объём: до ${maxLength || 400} слов.\n\n${text.slice(0, 10000)}`;
+      const prompt = `Сводка по "${group.name}" за ${daysBack} дн. (${group.articles.length} новостей). Объём: до ${maxLength} слов.\n\n${text.slice(0, 10000)}`;
       const summary = await callDeepSeek(SUMMARIZE_SOURCES_PROMPT, prompt);
       summaries.push({ sourceId, sourceName: group.name, articleCount: group.articles.length, dateRange: { from: '', to: '' }, summary });
     } catch (err: any) {
@@ -186,11 +244,12 @@ router.post('/metrics/extract', async (req: Request, res: Response) => {
     getApiKey();
   } catch (e: any) { res.status(500).json({ error: e.message }); return; }
 
-  const { sourceIds, daysBack } = req.body as any;
+  const sourceIds = validateStringArray(req.body.sourceIds, 10, 50);
+  const daysBack = validateInt(req.body.daysBack, 1, 365, 7);
 
-  const days = daysBack || 7;
-  const { articles } = readArticles(undefined, days, 500, 0);
-  const filtered = sourceIds?.length ? articles.filter((a: any) => sourceIds.includes(a.source)) : articles;
+
+  const { articles } = readArticles(undefined, daysBack, 500, 0);
+  const filtered = sourceIds.length ? articles.filter((a: any) => sourceIds.includes(a.source)) : articles;
 
   if (filtered.length === 0) {
     res.json({ jobId: '', message: 'Нет статей за выбранный период' });
@@ -202,10 +261,21 @@ router.post('/metrics/extract', async (req: Request, res: Response) => {
 
   // Запускаем асинхронно
   (async () => {
+    // Пропускаем статьи, для которых уже есть метрики
+    const existingArticleIds = new Set(
+      readMetrics(daysBack).map((m: any) => m.articleId)
+    );
+    const toProcess = filtered.filter(a => !existingArticleIds.has(a.id));
+    const skipped = filtered.length - toProcess.length;
+    if (skipped > 0) {
+      logger.info(`Пропущено ${skipped} статей с уже извлечёнными метриками`);
+    }
+
     const metrics: Metric[] = [];
-    for (let i = 0; i < filtered.length; i++) {
-      const article = filtered[i];
-      updateJob(jobId, { done: i, currentItem: article.title.slice(0, 80) });
+    const FLUSH_EVERY = 10;
+    for (let i = 0; i < toProcess.length; i++) {
+      const article = toProcess[i];
+      updateJob(jobId, { done: skipped + i, total: filtered.length, currentItem: article.title.slice(0, 80) });
       try {
         const prompt = `Заголовок: ${article.title}\n\nТекст: ${article.bodyText.slice(0, 2000)}`;
         const raw = await callDeepSeek(EXTRACT_METRICS_PROMPT, prompt, 400);
@@ -222,12 +292,20 @@ router.post('/metrics/extract', async (req: Request, res: Response) => {
           }
         }
       } catch (err: any) {
-        // Продолжаем несмотря на ошибки
+        logger.warn(`Метрика не извлечена: "${article.title.slice(0, 60)}" — ${err.message}`);
       }
-      await new Promise(r => setTimeout(r, 250));
+      // Пишем в БД каждые FLUSH_EVERY статей — чтобы не потерять при сбое
+      if (metrics.length >= FLUSH_EVERY) {
+        writeMetrics(metrics.splice(0));
+        saveJobs(jobs); // сохраняем прогресс каждые 10 статей
+        logger.debug(`Промежуточная запись: ${skipped + i + 1}/${filtered.length} статей обработано`);
+      }
+      await new Promise(r => setTimeout(r, 500));
     }
+    // Дописываем остаток
     if (metrics.length > 0) writeMetrics(metrics);
-    updateJob(jobId, { status: 'done', done: filtered.length, currentItem: `Готово: ${metrics.length} метрик` });
+    const totalMetrics = readMetrics(daysBack).length;
+    updateJob(jobId, { status: 'done', done: filtered.length, currentItem: `Готово: ${totalMetrics} метрик (новых: ${toProcess.length}, пропущено: ${skipped})` });
   })().catch(err => {
     updateJob(jobId, { status: 'error', error: err.message });
   });
@@ -266,17 +344,16 @@ router.post('/forecast', async (req: Request, res: Response) => {
     getApiKey();
   } catch (e: any) { res.status(500).json({ error: e.message }); return; }
 
-  const { daysBack } = req.body as any;
+  const daysBack = validateInt(req.body.daysBack, 1, 365, 7);
 
   const jobId = createJob('forecast', 3);
   res.json({ jobId, message: 'Генерация прогноза запущена' });
 
   (async () => {
     try {
-      const days = daysBack || 7;
       updateJob(jobId, { done: 1, currentItem: 'Сбор исторических метрик...' });
-      const allMetrics = readMetrics(Math.max(30, days)); // не менее 30 дней, но если выбран год — год
-      const { articles } = readArticles(undefined, days, 200, 0);
+      const allMetrics = readMetrics(Math.max(30, daysBack)); // не менее 30 дней, но если выбран год — год
+      const { articles } = readArticles(undefined, daysBack, 200, 0);
 
       updateJob(jobId, { done: 2, currentItem: 'Формирование контекста...' });
       const metricHistory: Record<string, { values: string[]; directions: string[] }> = {};
@@ -291,7 +368,7 @@ router.post('/forecast', async (req: Request, res: Response) => {
       ).join('\n');
 
       const newsText = articles.map((a: any, i: number) => `${i + 1}. [${a.sourceName}] ${a.title}`).join('\n');
-      const prompt = `ИСТОРИЯ МЕТРИК за 30 дней:\n${historyText || 'Нет данных'}\n\nСВЕЖИЕ НОВОСТИ за ${days} дн. (${articles.length} шт.):\n${newsText.slice(0, 5000)}\n\nДай прогноз на следующую неделю.`;
+      const prompt = `ИСТОРИЯ МЕТРИК за ${daysBack} дней:\n${historyText || 'Нет данных'}\n\nСВЕЖИЕ НОВОСТИ за ${daysBack} дн. (${articles.length} шт.):\n${newsText.slice(0, 5000)}\n\nДай прогноз на следующую неделю.`;
 
       updateJob(jobId, { done: 2, currentItem: 'Генерация прогноза AI...' });
       const forecast = await callDeepSeek(FORECAST_PROMPT, prompt, 2500);
@@ -299,7 +376,7 @@ router.post('/forecast', async (req: Request, res: Response) => {
       saveReport({
         type: 'forecast', title: `Прогноз на ${new Date().toLocaleDateString('ru-RU')}`,
         content: forecast,
-        periodStart: new Date(Date.now() - days * 86400000).toISOString().slice(0, 10),
+        periodStart: new Date(Date.now() - daysBack * 86400000).toISOString().slice(0, 10),
         periodEnd: new Date().toISOString().slice(0, 10),
       });
 
@@ -441,6 +518,130 @@ router.get('/alerts', (_req: Request, res: Response) => {
   });
 
   res.json({ alerts, generatedAt: new Date().toISOString() });
+});
+
+// GET /api/alerts/configurable — алерты с настраиваемыми порогами
+router.get('/alerts/configurable', (req: Request, res: Response) => {
+  const minConfidence = validateInt(req.query.minConfidence, 0, 100, 60) / 100;
+  const minChangePct = validateInt(req.query.minChangePct, 0, 100, 0);
+  const limit = validateInt(req.query.limit, 1, 50, 8);
+
+  const { articles } = readArticles(undefined, 3, 50, 0);
+  const allMetrics = readMetrics(3);
+
+  // Группируем по имени и считаем изменение
+  const byName: Record<string, any[]> = {};
+  for (const m of allMetrics) {
+    if (!byName[m.metricName]) byName[m.metricName] = [];
+    byName[m.metricName].push(m);
+  }
+
+  const alertMetrics: any[] = [];
+  for (const [name, items] of Object.entries(byName)) {
+    const sorted = items.sort((a, b) => b.extractedAt?.localeCompare(a.extractedAt || '') || 0);
+    const latest = sorted[0];
+    const prev = sorted[1];
+    if (!latest || latest.direction === 'flat') continue;
+    if ((latest.confidence || 0) < minConfidence) continue;
+
+    // Проверяем % изменения если задан
+    if (minChangePct > 0 && prev) {
+      const currVal = parseFloat(latest.metricValue);
+      const prevVal = parseFloat(prev.metricValue);
+      if (!isNaN(currVal) && !isNaN(prevVal) && prevVal !== 0) {
+        const changePct = Math.abs((currVal - prevVal) / prevVal * 100);
+        if (changePct < minChangePct) continue;
+      }
+    }
+
+    const related = articles.find((a: any) =>
+      a.title.toLowerCase().includes(name.toLowerCase().slice(0, 5)) ||
+      a.bodyText.toLowerCase().includes(name.toLowerCase().slice(0, 5))
+    );
+    const severity = (latest.confidence || 0) > 0.8 ? 'critical' : (latest.confidence || 0) > 0.6 ? 'warning' : 'info';
+
+    alertMetrics.push({
+      metric: name,
+      value: latest.metricValue,
+      unit: (latest as any).unit || '',
+      direction: latest.direction,
+      segment: latest.segment,
+      region: latest.region,
+      confidence: latest.confidence,
+      severity,
+      relatedNews: related ? { title: related.title, source: related.sourceName, url: related.url } : null,
+    });
+  }
+
+  res.json({ alerts: alertMetrics.slice(0, limit), generatedAt: new Date().toISOString() });
+});
+
+// GET /api/metrics/quality — качество данных по источникам
+router.get('/metrics/quality', (_req: Request, res: Response) => {
+  const metrics = readMetrics(30);
+  const { articles } = readArticles(undefined, 30, 1000, 0);
+
+  // По источникам
+  const bySource: Record<string, { articleCount: number; metricCount: number; avgConfidence: number; totalConfidence: number }> = {};
+  for (const a of articles) {
+    if (!bySource[a.source]) bySource[a.source] = { articleCount: 0, metricCount: 0, avgConfidence: 0, totalConfidence: 0 };
+    bySource[a.source].articleCount++;
+  }
+  for (const m of metrics) {
+    const article = articles.find(a => a.id === m.articleId);
+    const source = article?.source || 'unknown';
+    if (!bySource[source]) bySource[source] = { articleCount: 0, metricCount: 0, avgConfidence: 0, totalConfidence: 0 };
+    bySource[source].metricCount++;
+    bySource[source].totalConfidence += m.confidence || 0;
+  }
+
+  const quality = Object.entries(bySource).map(([source, data]) => ({
+    source,
+    sourceName: articles.find(a => a.source === source)?.sourceName || source,
+    articleCount: data.articleCount,
+    metricCount: data.metricCount,
+    metricsPerArticle: data.articleCount > 0 ? (data.metricCount / data.articleCount).toFixed(1) : '0',
+    avgConfidence: data.metricCount > 0 ? Math.round((data.totalConfidence / data.metricCount) * 100) : 0,
+  })).sort((a, b) => b.metricCount - a.metricCount);
+
+  // Всего
+  const totalConf = metrics.reduce((s, m) => s + (m.confidence || 0), 0);
+  const avgAll = metrics.length > 0 ? Math.round((totalConf / metrics.length) * 100) : 0;
+
+  res.json({
+    quality,
+    summary: {
+      totalMetrics: metrics.length,
+      totalArticles: articles.length,
+      avgConfidence: avgAll,
+      uniqueMetrics: new Set(metrics.map(m => m.metricName)).size,
+    },
+  });
+});
+
+// POST /api/metrics/normalize — нормализовать названия метрик
+router.post('/metrics/normalize', async (_req: Request, res: Response) => {
+  const metrics = readMetrics(365);
+  const names = [...new Set(metrics.map(m => m.metricName))];
+  const clusters = clusterMetricNames(names, 3);
+
+  const result: { canonical: string; variants: string[]; count: number }[] = [];
+  for (const [canon, variants] of clusters) {
+    if (variants.length > 1) {
+      result.push({ canonical: canon, variants, count: variants.length });
+    }
+  }
+
+  logger.info(`Нормализация: ${names.length} имён → ${clusters.size} кластеров (${result.length} с дубликатами)`);
+
+  res.json({
+    totalNames: names.length,
+    totalClusters: clusters.size,
+    duplicates: result,
+    suggestion: result.length > 0
+      ? `Найдено ${result.length} групп дубликатов. Рекомендуется переименовать варианты в канонические имена.`
+      : 'Дубликатов не найдено.',
+  });
 });
 
 // GET /api/benchmarks — официальные бенчмарки

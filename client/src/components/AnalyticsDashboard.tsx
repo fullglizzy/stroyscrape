@@ -59,15 +59,25 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
   const [segmentFilter, setSegmentFilter] = useState<string>('all');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [sparklines, setSparklines] = useState<Record<string, { sparkline: any[]; direction: string }>>({});
+  const [alertMinConf, setAlertMinConf] = useState(60);
+  const [alertMinChange, setAlertMinChange] = useState(0);
+  const [compareMode, setCompareMode] = useState(false); // сравнение периодов
 
   const toast = useToast();
 
   // -------- data loading --------
   useEffect(() => { loadMetrics(period); }, [period]);
   useEffect(() => { loadAlerts(); loadBenchmarks(); loadForecastHistory(); }, []);
+  useEffect(() => { if (metrics.length > 0) loadAlerts(); }, [alertMinConf, alertMinChange]);
   useEffect(() => { if (forecast) loadForecastHistory(); }, [forecast]);
 
-  const loadAlerts    = async () => { try { const r = await fetch('/api/alerts');     setAlerts((await r.json()).alerts || []); }       catch { /* */ } };
+  const loadAlerts = async () => {
+    try {
+      const params = new URLSearchParams({ minConfidence: String(alertMinConf), minChangePct: String(alertMinChange) });
+      const r = await fetch(`/api/alerts/configurable?${params}`);
+      setAlerts((await r.json()).alerts || []);
+    } catch { /* */ }
+  };
   const loadBenchmarks = async () => { try { const r = await fetch('/api/benchmarks'); setBenchmarks((await r.json()).benchmarks || []); } catch { /* */ } };
   const loadForecastHistory = async () => {
     try { const r = await fetch('/api/reports?type=forecast'); setForecastHistory((await r.json()).reports || []); } catch { /* */ }
@@ -251,6 +261,19 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
               AI находит метрики с резкими изменениями и связывает их с новостями. Красный border — критический риск, жёлтый — важное изменение, синий — инфо. Клик по ссылке — открыть статью-источник.
             </InfoTip></h3>
             <span className="badge" style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}>{alerts.length}</span>
+            {/* Threshold controls */}
+            <div className="flex items-center gap-2 ml-auto text-xs">
+              <span style={{ color: 'var(--color-text-muted)' }}>Достоверность ≥</span>
+              <select value={alertMinConf} onChange={e => setAlertMinConf(Number(e.target.value))}
+                className="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+                <option value={40}>40%</option><option value={50}>50%</option><option value={60}>60%</option><option value={70}>70%</option><option value={80}>80%</option>
+              </select>
+              <span style={{ color: 'var(--color-text-muted)' }}>Δ ≥</span>
+              <select value={alertMinChange} onChange={e => setAlertMinChange(Number(e.target.value))}
+                className="px-2 py-0.5 rounded text-xs" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+                <option value={0}>Любое</option><option value={5}>5%</option><option value={10}>10%</option><option value={20}>20%</option>
+              </select>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {(alertsExpanded ? alerts : alerts.slice(0, 4)).map((a, i) => (
@@ -291,7 +314,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
       {/* ============ EMPTY STATE (no metrics, not extracting) ============ */}
       {metrics.length === 0 && !extracting && (
         <div className="card p-6 md:p-8 text-center animate-fade-in">
-          <div className="mx-auto mb-5 opacity-30"><BarChart3 className="w-16 h-16" /></div>
+          <div className="flex justify-center mb-5 opacity-30"><BarChart3 className="w-16 h-16" /></div>
           <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
             {totalArticles === 0 ? 'Нет данных для анализа' : 'Метрики не извлечены'}
           </h3>
@@ -482,6 +505,12 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
                 {focusMode ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                 {focusMode ? 'Критические' : 'Все метрики'}
               </button>
+              <button onClick={() => setCompareMode(!compareMode)}
+                className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+                style={{ color: compareMode ? 'var(--color-primary)' : 'var(--color-text-muted)' }}>
+                <span className="text-xs">{compareMode ? '📊' : '📋'}</span>
+                {compareMode ? 'vs прошлый' : 'Сравнить'}
+              </button>
               <button onClick={exportCSV}
                 className="flex items-center gap-1.5 text-xs font-medium"
                 style={{ color: 'var(--color-text-muted)' }}>
@@ -543,6 +572,11 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
                       <td className="py-2 px-2 font-medium" style={{ color: 'var(--color-text)' }}>{name}</td>
                       <td className="py-2 px-2">
                         <span style={{ color: 'var(--color-text-secondary)' }}>{formatMetric(latest, items[0]?.unit)}</span>
+                        {compareMode && prev !== 0 && (
+                          <span className="ml-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                            ← {formatMetric(prev, items[0]?.unit)}
+                          </span>
+                        )}
                         {change !== 0 && <span className="ml-1.5 text-xs" style={{ color: change>0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
                           {change>0?'+':''}{change}%</span>}
                         {items[0]?.confidence > 0 && (
@@ -674,7 +708,7 @@ export default function AnalyticsDashboard({ sources, analytics, onNavigate }: P
             </div>
           ) : (
             <div className="card p-8 text-center">
-              <div className="mx-auto mb-4 opacity-30"><Brain className="w-12 h-12" /></div>
+              <div className="flex justify-center mb-4 opacity-30"><Brain className="w-12 h-12" /></div>
               <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Прогноз ещё не сгенерирован</h3>
               <p className="text-sm mb-4 max-w-sm mx-auto" style={{ color: 'var(--color-text-secondary)' }}>
                 AI проанализирует историю метрик и свежие новости, чтобы дать прогноз на неделю: что будет расти, падать, ключевые риски и рекомендации.

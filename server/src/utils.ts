@@ -15,23 +15,31 @@ import { createHash } from 'node:crypto';
  */
 export function parseRussianDate(raw: string): string {
   const trimmed = raw.trim();
+  if (!trimmed) return new Date().toISOString();
 
-  // Уже ISO 8601
-  if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
-    return trimmed;
+  // Уже ISO 8601 (с часовым поясом или без)
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(trimmed)) {
+    return new Date(trimmed).toISOString();
+  }
+
+  // ISO дата без времени: "2026-07-20"
+  const isoDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    return `${isoDateMatch[1]}-${isoDateMatch[2]}-${isoDateMatch[3]}T00:00:00+03:00`;
   }
 
   // RFC 2822 (из RSS): "Mon, 20 Jul 2026 16:44:51 +0300"
   const rfcMatch = trimmed.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/i);
   if (rfcMatch) {
-    return new Date(trimmed).toISOString();
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) return d.toISOString();
   }
 
-  // "DD.MM.YYYY"
-  const dotMatch = trimmed.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+  // "DD.MM.YYYY" или "D.M.YYYY"
+  const dotMatch = trimmed.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
   if (dotMatch) {
     const [, d, m, y] = dotMatch;
-    return `${y}-${m}-${d}T00:00:00+03:00`;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T00:00:00+03:00`;
   }
 
   // Русские месяцы
@@ -63,7 +71,7 @@ export function parseRussianDate(raw: string): string {
 
   // "20 июля 2026 14:32" или "20 июл. 2026 г. 14:30"
   const ruMatch = trimmed.match(
-    /^(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\.?|фев\.?|мар\.?|апр\.?|мая|июн\.?|июл\.?|авг\.?|сен\.?|окт\.?|ноя\.?|дек\.?)\s*(\d{4})(?:\s*г\.?)?(?:\s*(\d{1,2}):(\d{2}))?/i
+    /^(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря|янв\.?|фев\.?|мар\.?|апр\.?|мая|июн\.?|июл\.?|авг\.?|сен\.?|окт\.?|ноя\.?|дек\.?)\s*(\d{4})(?:\s*г\.?)?(?:\s*(\d{1,2})[.:](\d{2}))?/i
   );
 
   if (ruMatch) {
@@ -72,7 +80,12 @@ export function parseRussianDate(raw: string): string {
     return `${y}-${m}-${String(d).padStart(2, '0')}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+03:00`;
   }
 
-  // Fallback: вернуть текущую дату
+  // Пробуем нативный парсинг как last resort
+  const native = new Date(trimmed);
+  if (!isNaN(native.getTime())) return native.toISOString();
+
+  // Fallback: логируем и возвращаем текущую дату
+  console.warn(`[parseRussianDate] Не удалось разобрать дату: "${trimmed.slice(0, 80)}" — используется текущая`);
   return new Date().toISOString();
 }
 

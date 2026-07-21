@@ -34,7 +34,7 @@ function AppContent() {
       setLoading(true);
       setConnectionError(false);
       const [articlesRes, statusRes, sourcesRes] = await Promise.all([
-        api.getArticles({ limit: 50 }),
+        api.getArticles({ limit: 500 }),
         api.getStatus(),
         api.getSources(),
       ]);
@@ -64,7 +64,7 @@ function AppContent() {
         setStatus(s);
         if (!s.running) {
           const [articlesRes, sourcesRes] = await Promise.all([
-            api.getArticles({ limit: 50 }),
+            api.getArticles({ limit: 500 }),
             api.getSources(),
           ]);
           setArticles(articlesRes.articles);
