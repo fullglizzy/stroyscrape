@@ -48,7 +48,7 @@ export default function Sidebar({ section, onNavigate, sources, selectedSources,
   };
 
   const sidebarContent = (
-    <div className="h-full flex flex-col" style={{ background: 'var(--color-surface)' }}>
+    <div className="h-full flex flex-col" style={{ background: 'var(--color-sidebar)' }}>
       {/* Logo area (mobile) */}
       <div className="flex items-center justify-between p-4 md:hidden" style={{ borderBottom: '1px solid var(--color-border)' }}>
         <div className="flex items-center gap-2">

@@ -100,6 +100,12 @@ function getSectionColor(title: string): string {
   return 'var(--color-text-secondary)';
 }
 
+function formatDate(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+}
+
 function isToday(dateStr: string): boolean {
   if (!dateStr) return false;
   const d = new Date(dateStr);
@@ -263,7 +269,7 @@ export default function DomainAnalytics({ sources, onNavigate }: Props) {
               </h2>
               <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                 {report
-                  ? `Отчёт от ${report.createdAt?.slice(0, 10)} • ${report.articleCount} статей`
+                  ? `Отчёт от ${formatDate(report.createdAt)} • ${report.articleCount} статей`
                   : totalArticles > 0
                     ? `${totalArticles} статей в базе — сгенерируйте отчёт`
                     : 'Нет данных — запустите парсинг'}
@@ -460,7 +466,7 @@ export default function DomainAnalytics({ sources, onNavigate }: Props) {
                   style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)' }}>
                   <FileText className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }} />
                   <span className="font-medium truncate" style={{ color: 'var(--color-text)' }}>{r.title}</span>
-                  <span className="text-xs opacity-60 whitespace-nowrap">{r.createdAt?.slice(0, 10)}</span>
+                  <span className="text-xs opacity-60 whitespace-nowrap">{formatDate(r.createdAt)}</span>
                   <span className="text-xs opacity-50">({r.articleCount} ст.)</span>
                   <ChevronDown className="w-3.5 h-3.5 ml-auto flex-shrink-0 group-open:rotate-180 transition-transform" />
                 </summary>

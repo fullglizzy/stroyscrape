@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { WifiOff } from 'lucide-react';
-import { api, Article, ScrapeStatus, SourceStats } from './api';
+import { api, ScrapeStatus, SourceStats } from './api';
 import { ThemeProvider } from './ThemeContext';
 import { ToastProvider, useToast } from './ToastContext';
 import Header from './components/Header';
@@ -14,7 +14,6 @@ import ScrollToTop from './components/ScrollToTop';
 import { markVisit } from './components/ArticleCard';
 
 function AppContent() {
-  const [articles, setArticles] = useState<Article[]>([]);
   const [status, setStatus] = useState<ScrapeStatus | null>(null);
   const [sources, setSources] = useState<SourceStats>({});
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
@@ -35,12 +34,10 @@ function AppContent() {
     try {
       setLoading(true);
       setConnectionError(false);
-      const [articlesRes, statusRes, sourcesRes] = await Promise.all([
-        api.getArticles({ limit: 500 }),
+      const [statusRes, sourcesRes] = await Promise.all([
         api.getStatus(),
         api.getSources(),
       ]);
-      setArticles(articlesRes.articles);
       setStatus(statusRes);
       setSources(sourcesRes);
     } catch (err: any) {
@@ -65,11 +62,7 @@ function AppContent() {
         const s = await api.getStatus();
         setStatus(s);
         if (!s.running) {
-          const [articlesRes, sourcesRes] = await Promise.all([
-            api.getArticles({ limit: 500 }),
-            api.getSources(),
-          ]);
-          setArticles(articlesRes.articles);
+          const sourcesRes = await api.getSources();
           setSources(sourcesRes);
           toast.success('Парсинг завершён');
         }
@@ -105,10 +98,8 @@ function AppContent() {
     } catch (err: any) { toast.error(err.message); }
   };
 
-  // ---- Article filtering ----
-  const filteredArticles = selectedSources.size > 0
-    ? articles.filter(a => selectedSources.has(a.source))
-    : articles;
+  // ---- Article filtering (for sidebar source filter) ----
+  // ArticleList handles its own data fetching and filtering
 
   // ---- Theme ----
   // Всегда system — автоопределение по ОС
@@ -134,7 +125,7 @@ function AppContent() {
       case 'news':
         return (
           <div className="space-y-4 animate-fade-in">
-            <ArticleList articles={filteredArticles} loading={loading} />
+            <ArticleList selectedSources={selectedSources} />
           </div>
         );
       case 'analytics':
@@ -207,7 +198,7 @@ function AppContent() {
       </div>
 
       {/* Footer */}
-      <footer style={{ background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)' }}
+      <footer style={{ background: 'var(--color-sidebar)', borderTop: '1px solid var(--color-border)' }}
         className="py-2.5 px-4 text-xs flex items-center justify-between flex-wrap gap-x-4 gap-y-1">
         <span style={{ color: 'var(--color-text-muted)' }}>
           СтройПарсер — аналитика строительного рынка
