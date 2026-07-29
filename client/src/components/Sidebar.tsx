@@ -1,18 +1,16 @@
 import { useState } from 'react';
 import { SourceStats } from '../api';
 import {
-  LayoutDashboard, Newspaper, Sparkles, BarChart3, Play,
+  LayoutDashboard, Newspaper, BarChart3,
   Filter, Check, Search, X, HardHat,
 } from 'lucide-react';
 
-export type Section = 'overview' | 'news' | 'ai' | 'analytics' | 'scraper';
+export type Section = 'overview' | 'news' | 'analytics' | 'scraper';
 
 const NAV_ITEMS: { id: Section; icon: React.ReactNode; label: string }[] = [
   { id: 'overview',   icon: <LayoutDashboard className="w-4 h-4" />, label: 'Обзор' },
   { id: 'news',       icon: <Newspaper className="w-4 h-4" />,       label: 'Новости' },
-  { id: 'ai',         icon: <Sparkles className="w-4 h-4" />,        label: 'AI Сводка' },
   { id: 'analytics',  icon: <BarChart3 className="w-4 h-4" />,       label: 'Аналитика' },
-  { id: 'scraper',    icon: <Play className="w-4 h-4" />,            label: 'Парсер' },
 ];
 
 interface Props {
@@ -83,7 +81,8 @@ export default function Sidebar({ section, onNavigate, sources, selectedSources,
         ))}
       </nav>
 
-      {/* Source filter */}
+      {/* Source filter — только на вкладке новостей */}
+      {section === 'news' && (
       <div className="flex-1 overflow-y-auto p-2">
         <div className="flex items-center justify-between px-3 py-2">
           <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
@@ -133,6 +132,7 @@ export default function Sidebar({ section, onNavigate, sources, selectedSources,
           )}
         </div>
       </div>
+      )}
     </div>
   );
 

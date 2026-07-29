@@ -110,6 +110,29 @@ function initTables(): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  // Миграция/создание analytics_reports
+  // При изменении списка доменов — таблица пересоздаётся (данных нет на старте)
+  try {
+    const info = d.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='analytics_reports'").get() as any;
+    if (info && info.sql && !info.sql.includes("'digital'")) {
+      d.exec('DROP TABLE IF EXISTS analytics_reports');
+    }
+  } catch { /* ок */ }
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS analytics_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT NOT NULL CHECK(domain IN ('energy','digital','datacenters')),
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      period_start TEXT,
+      period_end TEXT,
+      previous_report_id INTEGER REFERENCES analytics_reports(id),
+      article_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  d.exec('CREATE INDEX IF NOT EXISTS idx_analytics_reports_domain ON analytics_reports(domain, created_at DESC)');
 }
 
 // ========== Articles CRUD ==========
@@ -421,6 +444,66 @@ export function readReports(type?: string, limit: number = 20): Report[] {
     content: r.content,
     periodStart: r.period_start,
     periodEnd: r.period_end,
+    createdAt: r.created_at,
+  }));
+}
+
+// ========== Analytics Reports (domain-specific) ==========
+
+export interface AnalyticsReport {
+  id?: number;
+  domain: 'energy' | 'digital' | 'datacenters';
+  title: string;
+  content: string;
+  periodStart?: string;
+  periodEnd?: string;
+  previousReportId?: number | null;
+  articleCount: number;
+  createdAt?: string;
+}
+
+export function saveAnalyticsReport(report: AnalyticsReport): number {
+  const d = getDb();
+  const result = d.prepare(`
+    INSERT INTO analytics_reports (domain, title, content, period_start, period_end, previous_report_id, article_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(report.domain, report.title, report.content, report.periodStart, report.periodEnd, report.previousReportId || null, report.articleCount);
+  return Number(result.lastInsertRowid);
+}
+
+export function getLatestAnalyticsReport(domain: string): AnalyticsReport | null {
+  const d = getDb();
+  const row = d.prepare(
+    'SELECT * FROM analytics_reports WHERE domain = ? ORDER BY created_at DESC LIMIT 1'
+  ).get(domain) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    domain: row.domain,
+    title: row.title,
+    content: row.content,
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    previousReportId: row.previous_report_id,
+    articleCount: row.article_count,
+    createdAt: row.created_at,
+  };
+}
+
+export function getAnalyticsReportHistory(domain: string, limit: number = 20): AnalyticsReport[] {
+  const d = getDb();
+  const rows = d.prepare(
+    'SELECT * FROM analytics_reports WHERE domain = ? ORDER BY created_at DESC LIMIT ?'
+  ).all(domain, limit) as any[];
+  return rows.map((r: any) => ({
+    id: r.id,
+    domain: r.domain,
+    title: r.title,
+    content: r.content,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    previousReportId: r.previous_report_id,
+    articleCount: r.article_count,
     createdAt: r.created_at,
   }));
 }

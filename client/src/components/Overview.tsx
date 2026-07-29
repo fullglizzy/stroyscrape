@@ -1,39 +1,15 @@
-import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Activity, Bell, Target, Newspaper, Zap, Brain, ChevronRight, BarChart3 } from 'lucide-react';
+import { Newspaper, BarChart3, Zap, Cpu, Building2, ChevronRight } from 'lucide-react';
 import { SourceStats } from '../api';
 
 interface Props {
   sources: SourceStats;
-  metrics: any[];
-  forecast: string | null;
   onNavigate: (section: string) => void;
-  onExtract: () => void;
 }
 
-export default function Overview({ sources, metrics, forecast, onNavigate, onExtract }: Props) {
+export default function Overview({ sources, onNavigate }: Props) {
   const totalArticles = Object.values(sources).reduce((s, info) => s + info.count, 0);
+  const activeSources = Object.values(sources).filter(s => s.count > 0).length;
   const hasArticles = totalArticles > 0;
-  const hasMetrics = metrics.length > 0;
-  const [alerts, setAlerts] = useState<any[]>([]);
-
-  useEffect(() => {
-    fetch('/api/alerts').then(r => r.json()).then(d => setAlerts(d.alerts || [])).catch(() => {});
-  }, []);
-
-  // KPI stats (when metrics exist)
-  const counts = { up: 0, down: 0, flat: 0 };
-  if (hasMetrics) {
-    for (const m of metrics) {
-      if (m.direction === 'up') counts.up++;
-      else if (m.direction === 'down') counts.down++;
-      else counts.flat++;
-    }
-  }
-  const total = metrics.length;
-
-  // Unique metric names
-  const uniqueNames = new Set(metrics.map((m: any) => m.metricName)).size;
-  const segments = new Set(metrics.map((m: any) => m.segment)).size;
 
   return (
     <div className="space-y-4 md:space-y-6 animate-fade-in">
@@ -47,85 +23,64 @@ export default function Overview({ sources, metrics, forecast, onNavigate, onExt
           <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>Добро пожаловать!</h2>
           <p className="text-sm mb-6 max-w-md mx-auto" style={{ color: 'var(--color-text-secondary)' }}>
             СтройПарсер — аналитическая платформа для мониторинга строительного рынка России.
-            AI собирает новости из 9 источников, извлекает метрики и строит прогнозы.
+            AI собирает новости из 12 источников и строит доменную аналитику по энергетике, рынку ЦОД и цифровизации стройки.
           </p>
           <div className="space-y-3 max-w-sm mx-auto">
             <StepCard step={1} title="Запустите парсинг" done={false}
               description="Соберите свежие новости строительной отрасли"
               action="Перейти к парсеру" onAction={() => onNavigate('scraper')} />
-            <StepCard step={2} title="Извлеките метрики" done={false}
-              description="AI найдёт в новостях ставки, цены и другие показатели"
-              disabled />
-            <StepCard step={3} title="Получите прогноз" done={false}
-              description="AI предскажет динамику рынка на неделю"
+            <StepCard step={2} title="Сгенерируйте аналитику" done={false}
+              description="AI проанализирует новости по энергетике и цифровизации"
               disabled />
           </div>
         </div>
       )}
 
-      {/* ---------- Has articles but no metrics ---------- */}
-      {hasArticles && !hasMetrics && (
-        <div className="card p-6 md:p-8 text-center">
-          <div className="mx-auto mb-5 w-16 h-16 rounded-2xl flex items-center justify-center"
-            style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}>
-            <Newspaper className="w-8 h-8" />
-          </div>
-          <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>
-            ✓ {totalArticles} статей собрано
-          </h2>
-          <p className="text-sm mb-6 max-w-md mx-auto" style={{ color: 'var(--color-text-secondary)' }}>
-            Отлично! Теперь AI может прочитать эти статьи и извлечь структурированные метрики.
-          </p>
-          <div className="space-y-3 max-w-sm mx-auto">
-            <StepCard step={1} title="Новости собраны" done
-              description={`${totalArticles} статей из ${Object.keys(sources).length} источников`} />
-            <StepCard step={2} title="Извлеките метрики" done={false}
-              description="AI прочитает статьи и найдёт показатели рынка"
-              action="Извлечь метрики" onAction={onExtract} />
-            <StepCard step={3} title="Прогноз" done={false}
-              description="AI предскажет динамику на неделю"
-              disabled />
-          </div>
-        </div>
-      )}
-
-      {/* ---------- Has metrics — show dashboard ---------- */}
-      {hasMetrics && (
+      {/* ---------- Has articles — show dashboard ---------- */}
+      {hasArticles && (
         <>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>Обзор рынка</h2>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>Обзор</h2>
 
-          {/* KPI cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
-            <MiniKpi icon={<TrendingUp className="w-4 h-4" />} label="Растёт" value={`${Math.round(counts.up / total * 100)}%`} color="var(--color-success)" />
-            <MiniKpi icon={<TrendingDown className="w-4 h-4" />} label="Падает" value={`${Math.round(counts.down / total * 100)}%`} color="var(--color-danger)" />
-            <MiniKpi icon={<Activity className="w-4 h-4" />} label="Стабильно" value={`${Math.round(counts.flat / total * 100)}%`} color="var(--color-text-muted)" />
-            <MiniKpi icon={<Target className="w-4 h-4" />} label="Показателей" value={String(uniqueNames)} color="var(--color-primary)" />
-            <MiniKpi icon={<Bell className="w-4 h-4" />} label="Сигналов" value={String(alerts.length)} color="var(--color-warning)" />
+          {/* Stats cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+            <MiniKpi icon={<Newspaper className="w-4 h-4" />} label="Статей" value={String(totalArticles)} color="var(--color-primary)" />
+            <MiniKpi icon={<BarChart3 className="w-4 h-4" />} label="Источников" value={String(activeSources)} color="var(--color-success)" />
           </div>
 
           {/* Status line */}
           <div className="flex items-center gap-4 text-xs flex-wrap" style={{ color: 'var(--color-text-muted)' }}>
-            <span>📰 {totalArticles} статей</span>
-            <span>📊 {total} метрик</span>
-            <span>📂 {segments} сегментов</span>
-            {forecast && <span style={{ color: 'var(--color-success)' }}>🔮 Прогноз готов</span>}
+            <span>📰 {totalArticles} статей в базе</span>
+            <span>📡 {activeSources} активных источников</span>
           </div>
-
-          {/* Alerts preview — loaded from API */}
-          <AlertsPreview alerts={alerts} onNavigate={onNavigate} />
 
           {/* Quick actions */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <QuickAction icon={<Newspaper className="w-5 h-5" />} label="Новости" desc={`${totalArticles} статей`}
               color="var(--color-primary)" onClick={() => onNavigate('news')} />
-            <QuickAction icon={<BarChart3 className="w-5 h-5" />} label="Аналитика" desc={`${uniqueNames} показателей`}
-              color="var(--color-success)" onClick={() => onNavigate('analytics')} />
-            <QuickAction icon={<Brain className="w-5 h-5" />} label="Прогноз" desc={forecast ? 'Готов' : 'Сгенерировать'}
+            <QuickAction icon={<Zap className="w-5 h-5" />} label="Энергетика" desc="Инфраструктура"
+              color="var(--color-warning)" onClick={() => onNavigate('analytics')} />
+            <QuickAction icon={<Building2 className="w-5 h-5" />} label="Рынок ЦОДов" desc="Дата-центры"
               color="var(--color-purple)" onClick={() => onNavigate('analytics')} />
+            <QuickAction icon={<Cpu className="w-5 h-5" />} label="Цифровизация" desc="IT в стройке"
+              color="var(--color-success)" onClick={() => onNavigate('analytics')} />
           </div>
 
-          {/* Data quality overview */}
-          <DataQualityPanel />
+          {/* Sources preview */}
+          <div className="card p-4 md:p-5">
+            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>Источники</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {Object.entries(sources)
+                .filter(([, info]) => info.count > 0)
+                .sort((a, b) => b[1].count - a[1].count)
+                .map(([id, info]) => (
+                  <div key={id} className="flex items-center justify-between p-2 rounded-lg text-xs"
+                    style={{ background: 'var(--color-bg)' }}>
+                    <span className="font-medium truncate" style={{ color: 'var(--color-text)' }}>{info.name}</span>
+                    <span style={{ color: 'var(--color-text-muted)' }}>{info.count} ст.</span>
+                  </div>
+                ))}
+            </div>
+          </div>
         </>
       )}
     </div>
@@ -187,71 +142,5 @@ function QuickAction({ icon, label, desc, color, onClick }: {
       </div>
       <ChevronRight className="w-4 h-4 ml-auto flex-shrink-0" style={{ color: 'var(--color-text-muted)' }} />
     </button>
-  );
-}
-
-function AlertsPreview({ alerts, onNavigate }: { alerts: any[]; onNavigate: (s: string) => void }) {
-  if (alerts.length === 0) return null;
-
-  return (
-    <div className="card p-4" style={{ borderColor: 'var(--color-warning)' }}>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <Bell className="w-4 h-4" style={{ color: 'var(--color-warning)' }} />
-          Срочные сигналы ({alerts.length})
-        </h3>
-        <button onClick={() => onNavigate('analytics')}
-          className="text-xs font-medium flex items-center gap-1" style={{ color: 'var(--color-primary)' }}>
-          Все <ChevronRight className="w-3 h-3" />
-        </button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        {alerts.slice(0, 4).map((a: any, i: number) => (
-          <div key={i} className="flex items-start gap-2 p-2 rounded-lg" style={{
-            background: a.severity === 'critical' ? 'var(--color-danger-bg)' : a.severity === 'warning' ? 'var(--color-warning-bg)' : 'var(--color-bg)',
-            borderLeft: `3px solid ${a.severity === 'critical' ? 'var(--color-danger)' : a.severity === 'warning' ? 'var(--color-warning)' : 'var(--color-primary)'}`,
-          }}>
-            <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{a.metric}: {a.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DataQualityPanel() {
-  const [quality, setQuality] = useState<any[]>([]);
-  const [summary, setSummary] = useState<any>(null);
-
-  useEffect(() => {
-    fetch('/api/metrics/quality').then(r => r.json()).then(d => {
-      setQuality(d.quality || []);
-      setSummary(d.summary);
-    }).catch(() => {});
-  }, []);
-
-  if (!summary || quality.length === 0) return null;
-
-  return (
-    <div className="card p-4 md:p-5">
-      <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--color-text)' }}>Качество данных</h3>
-      <div className="flex items-center gap-4 text-xs mb-3 flex-wrap" style={{ color: 'var(--color-text-muted)' }}>
-        <span>📊 {summary.totalMetrics} метрик</span>
-        <span>📰 {summary.totalArticles} статей</span>
-        <span>🎯 {summary.uniqueMetrics} уникальных</span>
-        <span>✅ {summary.avgConfidence}% средняя достоверность</span>
-      </div>
-      <div className="space-y-1.5">
-        {quality.slice(0, 6).map((q: any) => (
-          <div key={q.source} className="flex items-center gap-2 text-xs p-2 rounded" style={{ background: 'var(--color-bg)' }}>
-            <span className="flex-1 truncate font-medium" style={{ color: 'var(--color-text)' }}>{q.sourceName}</span>
-            <span style={{ color: 'var(--color-text-muted)' }}>{q.metricCount} метрик</span>
-            <span className="w-16 text-right" style={{ color: q.avgConfidence >= 70 ? 'var(--color-success)' : q.avgConfidence >= 50 ? 'var(--color-warning)' : 'var(--color-danger)' }}>
-              {q.avgConfidence}%
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }

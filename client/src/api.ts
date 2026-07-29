@@ -78,7 +78,6 @@ export const api = {
 
   /** Суммаризация по источникам за период */
   summarizeSources: (
-    apiKey: string,
     params: { sourceIds?: string[]; daysBack: number; maxLength?: number }
   ) =>
     fetchJSON<{
@@ -92,7 +91,7 @@ export const api = {
       }[];
     }>('/summarize/sources', {
       method: 'POST',
-      body: JSON.stringify({ apiKey, ...params }),
+      body: JSON.stringify(params),
     }),
 
   /** Статус парсинга */
@@ -115,21 +114,22 @@ export const api = {
   /** Статистика по источникам */
   getSources: () => fetchJSON<SourceStats>('/sources'),
 
-  /** Извлечь метрики из статей через AI */
-  extractMetrics: (params: { sourceIds?: string[]; daysBack: number }) =>
-    fetchJSON<{ extracted: number; errors: string[] }>('/metrics/extract', {
+  /** Генерация доменного аналитического отчёта */
+  generateDomainReport: (domain: 'energy' | 'digital' | 'datacenters', daysBack: number) =>
+    fetchJSON<{ jobId: string; domain: string; total: number; message: string }>('/analytics/generate', {
       method: 'POST',
-      body: JSON.stringify(params),
+      body: JSON.stringify({ domain, daysBack }),
     }),
 
-  /** Получить AI-прогноз */
-  getForecast: (daysBack: number) =>
-    fetchJSON<{ forecast: string }>('/forecast', {
-      method: 'POST',
-      body: JSON.stringify({ daysBack }),
-    }),
+  /** Статус генерации доменного отчёта */
+  getAnalyticsStatus: (jobId: string) =>
+    fetchJSON<{ job: any }>(`/analytics/status?jobId=${encodeURIComponent(jobId)}`),
 
-  /** История прогнозов */
-  getReports: (type?: string) =>
-    fetchJSON<{ reports: any[] }>(`/reports${type ? `?type=${type}` : ''}`),
+  /** История доменных отчётов */
+  getDomainReports: (domain: 'energy' | 'digital' | 'datacenters') =>
+    fetchJSON<{ domain: string; reports: any[] }>(`/analytics/reports/${domain}`),
+
+  /** Последний доменный отчёт */
+  getLatestDomainReport: (domain: 'energy' | 'digital' | 'datacenters') =>
+    fetchJSON<{ domain: string; report: any | null }>(`/analytics/reports/${domain}/latest`),
 };

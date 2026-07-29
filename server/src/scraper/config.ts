@@ -127,23 +127,51 @@ const ALL_SOURCES: SourceConfig[] = [
   // ============================
   {
     id: 'mos_stroinadzor',
-    name: 'Мосгосстройнадзор',
-    baseUrl: 'https://www.mos.ru/stroinadzor',
-    method: 'googlebot',
-    listUrl: 'https://www.mos.ru/stroinadzor/news/',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      name: 'Мосгосстройнадзор',
+      baseUrl: 'https://www.mos.ru/stroinadzor',
+      method: 'googlebot',
+      listUrl: 'https://www.mos.ru/stroinadzor/news/',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      },
+      selectors: {
+        title: 'meta[property="og:title"]',
+        date: 'meta[property="article:published_time"]',
+        body: 'article, .article-body, .news-detail',
+        summary: 'meta[property="og:description"]',
+        image: 'meta[property="og:image"]',
+      },
+      requestDelay: 2000,
     },
-    selectors: {
-      title: 'meta[property="og:title"]',
-      date: 'meta[property="article:published_time"]',
-      body: 'article, .article-body, .news-detail',
-      summary: 'meta[property="og:description"]',
-      image: 'meta[property="og:image"]',
+
+    // ============================
+    // IT/ЦОД источники (RSS)
+    // ============================
+    {
+      id: 'cnews',
+      name: 'CNews — ИТ-новости',
+      baseUrl: 'https://www.cnews.ru',
+      method: 'rss',
+      rssUrl: 'https://www.cnews.ru/inc/rss/news.xml',
+      requestDelay: 500,
     },
-    requestDelay: 2000,
-  },
-];
+    {
+      id: 'servernews',
+      name: 'ServerNews — ИТ-инфраструктура',
+      baseUrl: 'https://servernews.ru',
+      method: 'rss',
+      rssUrl: 'https://servernews.ru/rss',
+      requestDelay: 500,
+    },
+    {
+      id: 'comnews',
+      name: 'ComNews — Телеком и ИТ',
+      baseUrl: 'https://www.comnews.ru',
+      method: 'rss',
+      rssUrl: 'https://www.comnews.ru/rss',
+      requestDelay: 500,
+    },
+  ];
 
 /** ID источников, отключённых через env SOURCES_DISABLED */
 export function getDisabledSourceIds(): string[] {

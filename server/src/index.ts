@@ -10,10 +10,10 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import rateLimit from 'express-rate-limit';
 import scraperRoutes from './routes/scraper.js';
-import summarizeRoutes, { EXTRACT_METRICS_PROMPT } from './routes/summarize.js';
-import { readStatus, writeStatus, getDb } from './db.js';
+import summarizeRoutes from './routes/summarize.js';
+import domainAnalyticsRoutes from './routes/domainAnalytics.js';
+import { readStatus, writeStatus, getDb, readArticles, saveAnalyticsReport, getLatestAnalyticsReport } from './db.js';
 import { runScrape } from './scraper/index.js';
-import { refreshBenchmarks } from './benchmarks.js';
 import { logger } from './logger.js';
 import cron from 'node-cron';
 
@@ -53,6 +53,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api', apiLimiter);
 app.use('/api', scraperRoutes);
 app.use('/api', summarizeRoutes);
+app.use('/api', domainAnalyticsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -60,7 +61,7 @@ app.get('/api/health', (_req, res) => {
     ok: true,
     uptime: process.uptime(),
     memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB',
-    version: '1.0.0',
+    version: '2.0.0',
   });
 });
 
@@ -93,12 +94,7 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
   logger.info(`Сервер запущен на http://localhost:${PORT}`);
 
-  // Бенчмарки при старте
-  refreshBenchmarks().catch(() => {});
-  // И раз в сутки
-  cron.schedule('0 6 * * *', () => refreshBenchmarks().catch(() => {}));
-
-  // Автопарсинг по расписанию: каждые 3 часа
+  // Автопарсинг + авто-аналитика
   if (process.env.AUTO_SCRAPE !== 'false') {
     cron.schedule('0 */3 * * *', async () => {
       logger.info('[cron] Запуск автоматического парсинга...');
@@ -108,66 +104,94 @@ app.listen(PORT, () => {
         const daysBack = parseInt(process.env.DAYS_BACK || '7', 10);
         await runScrape(daysBack);
         logger.info('[cron] Автопарсинг завершён');
-
-        // Авто-экстракция метрик если есть API-ключ
-        const apiKey = process.env.DEEPSEEK_API_KEY;
-        if (apiKey) {
-          logger.info('[cron] Запуск авто-экстракции метрик...');
-          try {
-            const { readArticles } = await import('./db.js');
-            const { articles } = readArticles(undefined, daysBack, 500, 0);
-            if (articles.length > 0) {
-              const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
-              const { writeMetrics } = await import('./db.js');
-              const metrics: any[] = [];
-              let skipped = 0;
-              const FLUSH_EVERY = 10;
-              for (const article of articles.slice(0, 50)) {
-                try {
-                  const controller = new AbortController();
-                  const timeout = setTimeout(() => controller.abort(), 45_000);
-                  const res = await fetch(DEEPSEEK_API, {
-                    method: 'POST',
-                    signal: controller.signal,
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                    body: JSON.stringify({
-                      model: 'deepseek-chat',
-                      messages: [
-                        { role: 'system', content: EXTRACT_METRICS_PROMPT },
-                        { role: 'user', content: `Заголовок: ${article.title}\nТекст: ${article.bodyText.slice(0, 2000)}` },
-                      ],
-                      max_tokens: 99999, temperature: 0.3,
-                    }),
-                  });
-                  clearTimeout(timeout);
-                  const data = await res.json() as any;
-                  const raw = data.choices?.[0]?.message?.content || '';
-                  const jsonMatch = raw.match(/\[[\s\S]*\]/);
-                  if (jsonMatch) {
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    for (const m of parsed) {
-                      metrics.push({
-                        articleId: article.id, metricName: m.metric_name, metricValue: String(m.metric_value || ''),
-                        unit: m.unit || '', direction: m.direction || 'unknown', segment: m.segment || 'другое',
-                        region: m.region || 'РФ', confidence: m.confidence || 0.5,
-                        rawContext: raw.slice(0, 500), extractedAt: new Date().toISOString(),
-                      });
-                    }
-                  }
-                } catch { skipped++; /* skip failed */ }
-                // Промежуточная запись каждые FLUSH_EVERY статей
-                if (metrics.length >= FLUSH_EVERY) {
-                  writeMetrics(metrics.splice(0));
-                }
-                await new Promise(r => setTimeout(r, 500));
-              }
-              if (metrics.length > 0) { writeMetrics(metrics); }
-              logger.info(`[cron] Авто-метрики завершены (пропущено: ${skipped})`);
-            }
-          } catch (e: any) { logger.error('[cron] Ошибка авто-метрик:', e.message); }
-        }
       } catch (err: any) { logger.error('[cron] Ошибка автопарсинга:', err.message); }
     });
     logger.info('Автопарсинг: каждые 3 часа');
+
+    // Авто-генерация аналитики раз в день (в 8 утра по МСК)
+    cron.schedule('0 5 * * *', async () => {
+      if (!process.env.DEEPSEEK_API_KEY) return;
+      logger.info('[cron] Авто-генерация аналитических отчётов...');
+      await autoGenerateReports();
+    });
+    logger.info('Авто-аналитика: ежедневно в 8:00 МСК');
   }
 });
+
+async function autoGenerateReports() {
+  const domains = ['energy', 'digital', 'datacenters'] as const;
+  const domainLabels: Record<string, string> = { energy: 'Энергетика', digital: 'Цифровизация', datacenters: 'Рынок ЦОДов' };
+  const daysBack = 7;
+  const apiKey = process.env.DEEPSEEK_API_KEY!;
+
+  const { ENERGY_KEYWORDS, DIGITAL_KEYWORDS, DATACENTER_KEYWORDS, matchesDomain, ENERGY_SYSTEM_PROMPT, DIGITAL_SYSTEM_PROMPT, DATACENTER_SYSTEM_PROMPT } = await import('./routes/domainAnalytics.js');
+
+  for (const domain of domains) {
+    try {
+      const latest = getLatestAnalyticsReport(domain);
+      if (latest?.createdAt && new Date(latest.createdAt).toDateString() === new Date().toDateString()) {
+        logger.info(`[cron] Отчёт «${domainLabels[domain]}» за сегодня уже есть`);
+        continue;
+      }
+
+      const { articles } = readArticles(undefined, daysBack, 1000, 0);
+      if (articles.length === 0) continue;
+
+      const keywords = domain === 'energy' ? ENERGY_KEYWORDS : domain === 'digital' ? DIGITAL_KEYWORDS : DATACENTER_KEYWORDS;
+      const relevant = articles.filter((a: any) =>
+        matchesDomain(a.title || '', keywords) || matchesDomain((a.bodyText || '').slice(0, 3000), keywords)
+      );
+
+      if (relevant.length === 0) { logger.info(`[cron] Нет статей «${domainLabels[domain]}»`); continue; }
+
+      const sorted = [...relevant].sort((a: any, b: any) => b.publishedAt.localeCompare(a.publishedAt));
+      const articlesText = sorted.map((a: any, i: number) =>
+        `${i + 1}. [${a.sourceName}] ${a.publishedAt?.slice(0, 10)} — ${a.title}\n${(a.bodyText || '').slice(0, 600).trim()}`
+      ).join('\n\n');
+
+      const prevReport = getLatestAnalyticsReport(domain);
+      const prevContext = prevReport
+        ? `\n\n=== ПРЕДЫДУЩИЙ ОТЧЁТ от ${prevReport.createdAt?.slice(0, 10) || '?'} ===\n${prevReport.content.slice(0, 2000)}\n=== КОНЕЦ ===`
+        : '';
+
+      const systemPrompt = domain === 'energy' ? ENERGY_SYSTEM_PROMPT : domain === 'digital' ? DIGITAL_SYSTEM_PROMPT : DATACENTER_SYSTEM_PROMPT;
+      const userPrompt = `Проанализируй новости «${domainLabels[domain]}» за ${daysBack} дн. (${sorted.length} ст.):\n\n${articlesText.slice(0, 20000)}${prevContext}`;
+
+      logger.info(`[cron] Генерация «${domainLabels[domain]}» (${sorted.length} ст.)...`);
+
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 120_000);
+      const r = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST', signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 3500, temperature: 0.3 }),
+      });
+      clearTimeout(t);
+      const data = await r.json() as any;
+      let content = data.choices?.[0]?.message?.content || '';
+
+      // inline links + sources block
+      content = content.replace(/\[(\d+)\]/g, (full: string, num: string) => {
+        const a = sorted[parseInt(num) - 1];
+        return a?.url ? `[[${num}]](${a.url})` : full;
+      });
+      content += '\n\n## Источники\n\n' + sorted.map((a: any, i: number) =>
+        `${i + 1}. **[${a.sourceName}]** ${a.title} — [читать](${a.url})`
+      ).join('\n');
+
+      const now = new Date();
+      saveAnalyticsReport({
+        domain: domain as any,
+        title: `${domainLabels[domain]}: отчёт за ${daysBack} дн. (${now.toLocaleDateString('ru-RU')})`,
+        content,
+        periodStart: new Date(now.getTime() - daysBack * 86400000).toISOString().slice(0, 10),
+        periodEnd: now.toISOString().slice(0, 10),
+        previousReportId: prevReport?.id || null,
+        articleCount: sorted.length,
+      });
+      logger.info(`[cron] «${domainLabels[domain]}» сохранён (${sorted.length} ст.)`);
+    } catch (err: any) {
+      logger.error(`[cron] Ошибка «${domainLabels[domain]}»: ${err.message}`);
+    }
+  }
+}

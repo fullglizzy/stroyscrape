@@ -125,12 +125,20 @@ export function extractArticleId(url: string): string {
   const lastSegment = url.split('/').pop() || '';
   // Пробуем извлечь число из последнего сегмента (например "12345-title" → 12345)
   const numMatch = lastSegment.match(/^(\d+)/);
-  if (numMatch && numMatch[1].length >= 3) return numMatch[1];
+  if (numMatch && numMatch[1].length >= 3) {
+    const num = numMatch[1];
+    const afterNum = lastSegment.slice(num.length);
+    // Если после числа идёт дефис + цифра — это дата-префикс (2026-07-29_slug),
+    // а не ID статьи. Используем хеш.
+    if (!/^-\d/.test(afterNum)) {
+      return num;
+    }
+  }
   // Также ищем число в предпоследнем сегменте (например /read/21927/)
   const segments = url.split('/');
   for (let i = segments.length - 1; i >= 0; i--) {
     const m = segments[i].match(/^(\d+)$/);
-    if (m && m[1].length >= 3) return m[1];
+    if (m && m[1].length >= 5) return m[1];
   }
   // Fallback: короткий хеш от полного URL
   return createHash('md5').update(url).digest('base64url').slice(0, 12);

@@ -101,7 +101,7 @@ export default function ScraperPanel({ status, sources, onStartScrape, onStopScr
             <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: 'var(--color-text-muted)' }} />
           </div>
           <p className="text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>
-            {selectedSource ? 'Парсить только выбранный источник' : 'Парсить все 9 источников'}
+            {selectedSource ? 'Парсить только выбранный источник' : 'Парсить все 12 источников'}
           </p>
         </div>
 

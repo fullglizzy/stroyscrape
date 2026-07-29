@@ -16,6 +16,7 @@ import { MperspektivaScraper } from './sources/mperspektiva.js';
 import { MinstroyrfScraper } from './sources/minstroyrf.js';
 import { AncbScraper } from './sources/ancb.js';
 import { MosStroinadzorScraper } from './sources/mos-stroinadzor.js';
+import { GenericRssScraper } from './sources/generic-rss.js';
 
 /** Глобальный AbortController для остановки парсинга */
 let currentAbortController: AbortController | null = null;
@@ -42,6 +43,7 @@ function createScraper(config: (typeof SOURCES)[number]): BaseScraper {
     case 'minstroyrf': return new MinstroyrfScraper(config);
     case 'ancb': return new AncbScraper(config);
     case 'mos_stroinadzor': return new MosStroinadzorScraper(config);
+    case 'cnews': case 'servernews': case 'comnews': return new GenericRssScraper(config);
     default: throw new Error(`Unknown source: ${config.id}`);
   }
 }
@@ -122,34 +124,7 @@ export async function runScrape(daysBack: number = 7, sourceId?: string): Promis
     writeStatus(status);
   }
 
-  // Фаза 2: AI-фильтрация мусора (если есть API-ключ и собраны статьи)
-  if (allArticles.length > 0 && !signal.aborted) {
-    try {
-      const apiKey = process.env.DEEPSEEK_API_KEY;
-      if (apiKey) {
-        status.progress.currentStep = 'AI фильтрует нестроительные статьи...';
-        writeStatus(status);
-        const filtered = await aiFilterArticles(allArticles, apiKey);
-        const removed = allArticles.length - filtered.length;
-        if (removed > 0) {
-          console.log(`\n🤖 AI отфильтровал: ${removed} мусорных статей из ${allArticles.length}`);
-          // Обновляем results: убираем отфильтрованные статьи из source-массивов
-          const keepIds = new Set(filtered.map(a => a.id));
-          for (const r of results) {
-            r.articles = r.articles.filter(a => keepIds.has(a.id));
-          }
-          allArticles.length = 0;
-          allArticles.push(...filtered);
-        } else {
-          console.log(`\n🤖 AI проверил ${allArticles.length} статей — мусора не найдено`);
-        }
-      }
-    } catch (err: any) {
-      console.warn(`\n⚠️ AI-фильтр не сработал (${err.message}), оставляем всё как есть`);
-    }
-  }
-
-  // Фаза 3: запись в БД
+  // Запись в БД
   for (const r of results) {
     if (r.articles.length > 0) writeArticles(r.articles);
     if (r.errors.length > 0) writeErrors(r.errors);
@@ -170,70 +145,6 @@ export async function runScrape(daysBack: number = 7, sourceId?: string): Promis
 }
 
 // ============================================================
-// AI-фильтр: один запрос → все заголовки → только строительные
-// ============================================================
-
-async function aiFilterArticles(articles: Article[], apiKey: string): Promise<Article[]> {
-  const titles = articles.map((a, i) => `${i + 1}. ${a.title.replace(/\n/g, ' ').slice(0, 150)}`).join('\n');
-
-  const prompt = `Ниже список заголовков новостей. Оставь ТОЛЬКО те, которые относятся к строительной отрасли, недвижимости, ипотеке, ЖКХ, архитектуре, градостроительству, реновации, стройматериалам.
-
-НЕ строительные темы (удалить): спорт, культура, погода, ДТП, криминал, политика (не связанная со стройкой), развлечения, мода, еда, здоровье, IT (не связанное со стройкой).
-
-Верни ТОЛЬКО JSON-массив с номерами строк (начиная с 1), которые ОСТАВИТЬ.
-Пример: [1,3,5,7,12]
-Если весь список строительный — верни все номера.
-Если ни одной строительной — верни [].
-
-Заголовки:\n${titles}`;
-
-  console.log(`[AI-фильтр] Отправка ${articles.length} заголовков на проверку...`);
-
-  const res = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages: [
-        { role: 'system', content: 'Ты — фильтр. Верни ТОЛЬКО JSON-массив чисел. Ни одного слова.' },
-        { role: 'user', content: prompt },
-      ],
-      max_tokens: 2000,
-      temperature: 0,
-    }),
-  });
-
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  const data = await res.json() as any;
-  let raw = (data.choices?.[0]?.message?.content || '[]').trim();
-
-  // Очищаем markdown-обёртку если есть
-  raw = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-
-  // Пробуем распарсить как есть
-  let keepIndices: number[] = [];
-  try {
-    keepIndices = JSON.parse(raw);
-  } catch {
-    // Ищем что-то похожее на массив и пробуем закрыть если обрезано
-    const start = raw.indexOf('[');
-    if (start >= 0) {
-      let chunk = raw.slice(start);
-      // Если нет закрывающей скобки — добавляем
-      if (!chunk.endsWith(']')) {
-        const lastComma = chunk.lastIndexOf(',');
-        chunk = chunk.slice(0, lastComma >= 0 ? lastComma : chunk.length) + ']';
-      }
-      try { keepIndices = JSON.parse(chunk); } catch { /* ниже */ }
-    }
-  }
-
-  if (keepIndices.length === 0) throw new Error(`Не смогли распарсить: ${raw.slice(0, 100)}`);
-
-  const kept = keepIndices.map(i => articles[i - 1]).filter(Boolean);
-  return kept;
-}
-
 /** CLI-режим: запуск из командной строки */
 export async function runScrapeCLI(daysBack: number = 7): Promise<void> {
   console.log('=== Строительный новостной парсер ===');

@@ -77,6 +77,7 @@ export abstract class BaseScraper {
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return true;
     const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
     cutoff.setDate(cutoff.getDate() - daysBack);
     return date >= cutoff;
   }

@@ -1,18 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { WifiOff } from 'lucide-react';
 import { api, Article, ScrapeStatus, SourceStats } from './api';
-import { ThemeProvider, useTheme } from './ThemeContext';
+import { ThemeProvider } from './ThemeContext';
 import { ToastProvider, useToast } from './ToastContext';
 import Header from './components/Header';
 import Sidebar, { Section } from './components/Sidebar';
 import ScraperPanel from './components/ScraperPanel';
 import ArticleList from './components/ArticleList';
-import AISummarizer from './components/AISummarizer';
-import AnalyticsDashboard from './components/AnalyticsDashboard';
+import DomainAnalytics from './components/DomainAnalytics';
 import Overview from './components/Overview';
 import ErrorBoundary from './components/ErrorBoundary';
 import ScrollToTop from './components/ScrollToTop';
-import { useAnalytics } from './useAnalytics';
 import { markVisit } from './components/ArticleCard';
 
 function AppContent() {
@@ -24,9 +22,13 @@ function AppContent() {
   const [section, setSection] = useState<Section>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
-  const { theme, setTheme } = useTheme();
   const toast = useToast();
-  const analytics = useAnalytics();
+
+  // Форсируем авто-тему по системе
+  useEffect(() => {
+    localStorage.setItem('theme', 'system');
+    document.documentElement.classList.toggle('dark', window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }, []);
 
   // ---- Data loading ----
   const loadData = useCallback(async () => {
@@ -109,7 +111,7 @@ function AppContent() {
     : articles;
 
   // ---- Theme ----
-  const nextTheme = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
+  // Всегда system — автоопределение по ОС
 
   // ---- Footer data ----
   const lastScrapeTime = status?.lastRun ? new Date(status.lastRun).toLocaleString('ru-RU') : null;
@@ -126,10 +128,7 @@ function AppContent() {
         return (
           <Overview
             sources={sources}
-            metrics={analytics.metrics}
-            forecast={analytics.forecast}
             onNavigate={(s) => setSection(s as Section)}
-            onExtract={() => setSection('analytics')}
           />
         );
       case 'news':
@@ -138,18 +137,10 @@ function AppContent() {
             <ArticleList articles={filteredArticles} loading={loading} />
           </div>
         );
-      case 'ai':
-        return (
-          <AISummarizer
-            sources={sources}
-            selectedSources={selectedSources}
-          />
-        );
       case 'analytics':
         return (
-          <AnalyticsDashboard
+          <DomainAnalytics
             sources={sources}
-            analytics={analytics}
             onNavigate={(t) => setSection(t as Section)}
           />
         );
@@ -183,8 +174,6 @@ function AppContent() {
       <Header
         mobileMenuOpen={sidebarOpen}
         onToggleMenu={() => setSidebarOpen(!sidebarOpen)}
-        themeIcon={<></>}
-        onThemeToggle={() => setTheme(nextTheme)}
       />
 
       {/* Connection error banner */}
@@ -236,6 +225,13 @@ function AppContent() {
               {lastScrapeTime}
             </span>
           )}
+          <button
+            onClick={() => setSection('scraper')}
+            className="text-xs opacity-40 hover:opacity-80 transition-opacity ml-2"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            Парсер
+          </button>
         </div>
       </footer>
     </div>
