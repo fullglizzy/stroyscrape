@@ -10,3 +10,4 @@ data/stroyscrape.db
 .zcode/
 *.tsbuildinfo
 stroyscrape.db*
+.env
