@@ -49,8 +49,8 @@ export default function Sidebar({ section, onNavigate, sources, selectedSources,
 
   const sidebarContent = (
     <div className="h-full flex flex-col" style={{ background: 'var(--color-sidebar)' }}>
-      {/* Logo area (mobile) */}
-      <div className="flex items-center justify-between p-4 md:hidden" style={{ borderBottom: '1px solid var(--color-border)' }}>
+      {/* Logo area */}
+      <div className="flex items-center justify-between p-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center"
             style={{ background: 'var(--color-primary-bg)', color: 'var(--color-primary)' }}>
@@ -58,7 +58,7 @@ export default function Sidebar({ section, onNavigate, sources, selectedSources,
           </div>
           <span className="font-bold text-sm" style={{ color: 'var(--color-text)' }}>СтройПарсер</span>
         </div>
-        <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--color-text-muted)' }}>
+        <button onClick={onClose} className="p-1 rounded md:hidden" style={{ color: 'var(--color-text-muted)' }}>
           <X className="w-5 h-5" />
         </button>
       </div>

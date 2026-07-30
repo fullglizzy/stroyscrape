@@ -8,7 +8,7 @@ interface Props {
 export default function Header({ mobileMenuOpen, onToggleMenu }: Props) {
   return (
     <header style={{ background: 'var(--color-sidebar)', borderBottom: '1px solid var(--color-border)' }}
-      className="sticky top-0 z-40">
+      className="md:hidden sticky top-0 z-40">
       <div className="px-3 md:px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <button onClick={onToggleMenu}

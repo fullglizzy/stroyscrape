@@ -96,7 +96,7 @@ app.listen(PORT, () => {
 
   // Автопарсинг + авто-аналитика
   if (process.env.AUTO_SCRAPE !== 'false') {
-    cron.schedule('0 */3 * * *', async () => {
+    cron.schedule('0 5 * * *', async () => {
       logger.info('[cron] Запуск автоматического парсинга...');
       const status = readStatus();
       if (status.running) { logger.info('[cron] Парсинг уже запущен, пропускаю'); return; }
@@ -104,17 +104,15 @@ app.listen(PORT, () => {
         const daysBack = parseInt(process.env.DAYS_BACK || '7', 10);
         await runScrape(daysBack);
         logger.info('[cron] Автопарсинг завершён');
+
+        // После парсинга — аналитика
+        if (process.env.DEEPSEEK_API_KEY) {
+          logger.info('[cron] Запуск авто-аналитики...');
+          await autoGenerateReports();
+        }
       } catch (err: any) { logger.error('[cron] Ошибка автопарсинга:', err.message); }
     });
-    logger.info('Автопарсинг: каждые 3 часа');
-
-    // Авто-генерация аналитики раз в день (в 8 утра по МСК)
-    cron.schedule('0 5 * * *', async () => {
-      if (!process.env.DEEPSEEK_API_KEY) return;
-      logger.info('[cron] Авто-генерация аналитических отчётов...');
-      await autoGenerateReports();
-    });
-    logger.info('Авто-аналитика: ежедневно в 8:00 МСК');
+    logger.info('Автопарсинг + аналитика: ежедневно в 8:00 МСК');
   }
 });
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, Clock } from 'lucide-react';
 import { api, ScrapeStatus, SourceStats } from './api';
 import { ThemeProvider } from './ThemeContext';
 import { ToastProvider, useToast } from './ToastContext';
@@ -21,7 +21,32 @@ function AppContent() {
   const [section, setSection] = useState<Section>('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [nextReportIn, setNextReportIn] = useState('');
   const toast = useToast();
+
+  // Динамический title
+  useEffect(() => {
+    const titles: Record<string, string> = { overview: 'Обзор', news: 'Новости', analytics: 'Аналитика', scraper: 'Парсер' };
+    document.title = `СтройПарсер — ${titles[section] || 'Аналитика стройрынка'}`;
+  }, [section]);
+
+  // Таймер до следующего отчёта (8:00 МСК = 5:00 UTC)
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const next = new Date(now);
+      next.setUTCHours(5, 0, 0, 0);
+      if (now >= next) next.setUTCDate(next.getUTCDate() + 1);
+      const diff = next.getTime() - now.getTime();
+      if (diff <= 0) { setNextReportIn('скоро'); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      setNextReportIn(`${h} ч ${m} мин`);
+    };
+    tick();
+    const iv = setInterval(tick, 60000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Форсируем авто-тему по системе
   useEffect(() => {
@@ -191,7 +216,7 @@ function AppContent() {
 
         {/* Main content */}
         <main className="flex-1 min-w-0 px-3 md:px-5 py-4 md:py-6">
-          <div className="max-w-5xl mx-auto" key={section}>
+          <div className="max-w-5xl mx-auto" key={section} style={{ animation: 'fadeIn 0.25s ease' }}>
             {renderSection()}
           </div>
         </main>
@@ -204,6 +229,12 @@ function AppContent() {
           СтройПарсер — аналитика строительного рынка
         </span>
         <div className="flex items-center gap-3 flex-wrap">
+          {nextReportIn && (
+            <span className="flex items-center gap-1" style={{ color: 'var(--color-text-muted)' }}>
+              <Clock className="w-3 h-3" />
+              Следующий отчёт через {nextReportIn}
+            </span>
+          )}
           <span style={{ color: 'var(--color-text-muted)' }}>
             📰 {totalArticles} статей
           </span>

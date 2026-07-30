@@ -1,4 +1,4 @@
-import { Newspaper, BarChart3, Zap, Cpu, Building2, ChevronRight } from 'lucide-react';
+import { Newspaper, BarChart3, Zap, Cpu, Building2, ChevronRight, Sparkles, Clock, RefreshCw } from 'lucide-react';
 import { SourceStats } from '../api';
 
 interface Props {
@@ -63,6 +63,46 @@ export default function Overview({ sources, onNavigate }: Props) {
               color="var(--color-purple)" onClick={() => onNavigate('analytics')} />
             <QuickAction icon={<Cpu className="w-5 h-5" />} label="Цифровизация" desc="IT в стройке"
               color="var(--color-success)" onClick={() => onNavigate('analytics')} />
+          </div>
+
+          {/* How it works */}
+          <div className="card p-4 md:p-5">
+            <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--color-text)' }}>
+              <Sparkles className="w-4 h-4 inline mr-1.5" style={{ color: 'var(--color-primary)' }} />
+              Как это работает
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'var(--color-bg)' }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-sm font-bold"
+                  style={{ background: 'var(--color-primary-bg)', color: 'var(--color-primary)' }}>1</div>
+                <div className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                  <span className="font-medium" style={{ color: 'var(--color-text)' }}>Сбор новостей</span>
+                  <br />Каждую ночь парсер собирает статьи с 12 источников строительной и IT-отрасли.
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'var(--color-bg)' }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-sm font-bold"
+                  style={{ background: 'var(--color-primary-bg)', color: 'var(--color-primary)' }}>2</div>
+                <div className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                  <span className="font-medium" style={{ color: 'var(--color-text)' }}>AI-анализ</span>
+                  <br />DeepSeek читает новости, фильтрует по темам и находит связи между событиями.
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'var(--color-bg)' }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-sm font-bold"
+                  style={{ background: 'var(--color-primary-bg)', color: 'var(--color-primary)' }}>3</div>
+                <div className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                  <span className="font-medium" style={{ color: 'var(--color-text)' }}>Готовый отчёт</span>
+                  <br />К 8:00 МСК отчёты по энергетике, ЦОД и цифровизации готовы. Заходите и читайте.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 mt-4 p-3 rounded-lg text-xs leading-relaxed"
+              style={{ background: 'var(--color-primary-bg)', color: 'var(--color-primary)', border: '1px solid var(--color-primary)' }}>
+              <Clock className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>Отчёты обновляются <strong>каждый день в 8:00 по Москве</strong>. В разделе «Аналитика» всегда актуальная картина рынка с ссылками на источники.</span>
+            </div>
           </div>
 
           {/* Sources preview */}
