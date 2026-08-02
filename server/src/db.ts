@@ -5,7 +5,7 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
-import { Article, ScrapeStatus, ScrapeError } from './types.js';
+import { Article, ArticleDomain, ScrapeStatus, ScrapeError } from './types.js';
 
 const DATA_DIR = process.env.DATA_DIR || './data';
 const DB_PATH = path.join(DATA_DIR, 'stroyscrape.db');
@@ -54,6 +54,13 @@ function initTables(): void {
     CREATE INDEX IF NOT EXISTS idx_articles_source ON articles(source);
     CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
     CREATE INDEX IF NOT EXISTS idx_articles_fetched ON articles(fetched_at);
+
+    -- Миграция: колонка AI-классификации
+    `);
+  try { d.exec('ALTER TABLE articles ADD COLUMN classification TEXT NOT NULL DEFAULT \'[]\''); } catch { /* уже существует */ }
+  try { d.exec('CREATE INDEX IF NOT EXISTS idx_articles_classification ON articles(classification)'); } catch { /* ок */ }
+
+  d.exec(`
 
     CREATE TABLE IF NOT EXISTS metrics (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,10 +189,16 @@ export function readArticles(source?: string, daysBack?: number, limit?: number,
     summary: row.summary,
     imageUrl: row.image_url,
     tags: JSON.parse(row.tags || '[]'),
+    classification: safeJsonParse(row.classification, []),
     fetchedAt: row.fetched_at,
   }));
 
   return { total, articles };
+}
+
+function safeJsonParse(raw: string | null | undefined, fallback: any): any {
+  if (!raw) return fallback;
+  try { return JSON.parse(raw); } catch { return fallback; }
 }
 
 export function readArticleById(id: string): Article | null {
@@ -204,6 +217,7 @@ export function readArticleById(id: string): Article | null {
     summary: row.summary,
     imageUrl: row.image_url,
     tags: JSON.parse(row.tags || '[]'),
+    classification: safeJsonParse(row.classification, []),
     fetchedAt: row.fetched_at,
   };
 }
@@ -211,8 +225,8 @@ export function readArticleById(id: string): Article | null {
 export function writeArticles(articles: Article[]): number {
   const d = getDb();
   const insert = d.prepare(`
-    INSERT OR IGNORE INTO articles (id, source, source_name, url, title, published_at, author, body_text, summary, image_url, tags, fetched_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO articles (id, source, source_name, url, title, published_at, author, body_text, summary, image_url, tags, classification, fetched_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = d.transaction((items: Article[]) => {
@@ -220,7 +234,8 @@ export function writeArticles(articles: Article[]): number {
     for (const a of items) {
       const result = insert.run(
         a.id, a.source, a.sourceName, a.url, a.title, a.publishedAt,
-        a.author, a.bodyText, a.summary, a.imageUrl, JSON.stringify(a.tags), a.fetchedAt
+        a.author, a.bodyText, a.summary, a.imageUrl, JSON.stringify(a.tags),
+        JSON.stringify(a.classification || []), a.fetchedAt
       );
       if (result.changes > 0) added++;
     }
@@ -402,6 +417,99 @@ export function getMetricsTrend(metricName: string, daysBack: number = 30): { da
     value: r.metric_value,
     direction: r.direction,
   }));
+}
+
+// ========== Classification ==========
+
+/** Обновить классификацию одной статьи */
+export function updateArticleClassification(id: string, domains: ArticleDomain[]): void {
+  const d = getDb();
+  d.prepare('UPDATE articles SET classification = ? WHERE id = ?')
+    .run(JSON.stringify(domains), id);
+}
+
+/** Получить неклассифицированные статьи (classification = '[]') */
+export function getUnclassifiedArticles(limit: number = 500, daysBack?: number): { id: string; title: string; bodyText: string }[] {
+  const d = getDb();
+  let query = "SELECT id, title, body_text FROM articles WHERE classification = '[]'";
+  const params: any[] = [];
+
+  if (daysBack && daysBack > 0) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysBack);
+    query += ' AND published_at >= ?';
+    params.push(cutoff.toISOString().slice(0, 10));
+  }
+
+  query += ' ORDER BY published_at DESC LIMIT ?';
+  params.push(limit);
+
+  const rows = d.prepare(query).all(...params) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    title: r.title,
+    bodyText: r.body_text,
+  }));
+}
+
+/** Статистика классификации по доменам */
+export function getClassificationStats(): { domain: string; count: number; unclassified: number }[] {
+  const d = getDb();
+
+  const totalRow = d.prepare("SELECT COUNT(*) as cnt FROM articles").get() as any;
+  const total = totalRow?.cnt || 0;
+
+  const unclassifiedRow = d.prepare("SELECT COUNT(*) as cnt FROM articles WHERE classification = '[]'").get() as any;
+  const unclassified = unclassifiedRow?.cnt || 0;
+
+  const domains = ['energy', 'digital', 'datacenters'];
+  return domains.map(domain => {
+    const row = d.prepare(
+      `SELECT COUNT(*) as cnt FROM articles WHERE classification LIKE ?`
+    ).get(`%"${domain}"%`) as any;
+    return { domain, count: row?.cnt || 0, unclassified: 0 };
+  }).concat([{ domain: 'unclassified', count: unclassified, unclassified }]);
+}
+
+/** Получить статьи по домену через classification */
+export function readArticlesByDomain(domain: ArticleDomain, daysBack?: number, limit?: number, offset?: number): { total: number; articles: Article[] } {
+  const d = getDb();
+  const conditions: string[] = [`classification LIKE '%"${domain}"%'`];
+  const params: any[] = [];
+
+  if (daysBack && daysBack > 0) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysBack);
+    conditions.push('published_at >= ?');
+    params.push(cutoff.toISOString().slice(0, 10));
+  }
+
+  const where = `WHERE ${conditions.join(' AND ')}`;
+
+  const countRow = d.prepare(`SELECT COUNT(*) as cnt FROM articles ${where}`).get(...params) as any;
+  const total = countRow?.cnt || 0;
+
+  const rows = d.prepare(
+    `SELECT * FROM articles ${where} ORDER BY published_at DESC LIMIT ? OFFSET ?`
+  ).all(...params, limit || 100, offset || 0) as any[];
+
+  const articles: Article[] = rows.map(row => ({
+    id: row.id,
+    source: row.source,
+    sourceName: row.source_name,
+    url: row.url,
+    title: row.title,
+    publishedAt: row.published_at,
+    author: row.author,
+    bodyText: row.body_text,
+    summary: row.summary,
+    imageUrl: row.image_url,
+    tags: JSON.parse(row.tags || '[]'),
+    classification: safeJsonParse(row.classification, []),
+    fetchedAt: row.fetched_at,
+  }));
+
+  return { total, articles };
 }
 
 // ========== Reports ==========

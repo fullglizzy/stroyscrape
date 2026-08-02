@@ -14,6 +14,7 @@ export interface Article {
   summary: string | null;
   imageUrl: string | null;
   tags: string[];
+  classification: string[];
   fetchedAt: string;
 }
 

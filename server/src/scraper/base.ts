@@ -56,9 +56,10 @@ export abstract class BaseScraper {
   }
 
   /** Создать Article с заполненными служебными полями */
-  protected makeArticle(partial: Omit<Article, 'id' | 'source' | 'sourceName' | 'fetchedAt'>): Article {
+  protected makeArticle(partial: Omit<Article, 'id' | 'source' | 'sourceName' | 'fetchedAt' | 'classification'> & { classification?: Article['classification'] }): Article {
     return {
       ...partial,
+      classification: partial.classification || [],
       id: makeArticleId(this.config.id, partial.url),
       source: this.config.id,
       sourceName: this.config.name,

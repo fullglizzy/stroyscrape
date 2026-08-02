@@ -4,15 +4,19 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { readArticles, saveAnalyticsReport, getLatestAnalyticsReport, getAnalyticsReportHistory } from '../db.js';
+import { readArticlesByDomain, getClassificationStats, saveAnalyticsReport, getLatestAnalyticsReport, getAnalyticsReportHistory } from '../db.js';
 import { validateInt } from '../validation.js';
 import { logger } from '../logger.js';
+import type { ArticleDomain } from '../types.js';
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 const router = Router();
-const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
+const DEEPSEEK_API = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/chat/completions';
+
+/** Модель для генерации отчётов (можно deepseek-reasoner для более глубокого анализа) */
+const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'deepseek-chat';
 
 // ==================== Job system (same pattern as summarize.ts) ====================
 
@@ -102,7 +106,7 @@ async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens:
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: ANALYSIS_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -120,81 +124,6 @@ async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens:
     if (err.name === 'AbortError') throw new Error('DeepSeek API: превышен таймаут (90с)');
     throw err;
   }
-}
-
-// ==================== Ключевые слова для фильтрации статей ====================
-
-// ==================== Ключевые слова для фильтрации статей ====================
-
-export const ENERGY_KEYWORDS = [
-  'ТЭЦ ', ' ГЭС ', ' АЭС ', 'электросете', 'Минэнерго',
-  'подстанция', 'подстанции', 'ЛЭП ',
-  'теплоснабжения', 'теплосет', 'газификации',
-  'ВИЭ ', 'энергомощност', 'энергодефицит',
-  'ветроэлектростанц', 'солнечная электростан',
-  'линий электропередач', 'энергосистем', 'энерготариф',
-  'Мособлэнерго', 'Россети', 'электрогенерац',
-  'строительство.*ТЭЦ', 'строительство.*электростанц',
-  'энергоблок', 'энергетическ.*инфраструктур',
-];
-
-export const DIGITAL_KEYWORDS = [
-  'ТИМ-', 'BIM-',
-  'информационное моделирование', 'информационного моделирования',
-  'цифровой двойник', 'цифровых двойников',
-  'цифровизации строительств', 'цифровизация строительн',
-  'цифров.*платформ.*строитель', 'цифровой платформ',
-  'умный город', 'умного города', 'умных городов',
-  'искусственный интеллект.*строитель', 'искусственного интеллекта.*строитель',
-  'ИИ в строительств', 'ИИ в градостроительств', 'ИИ в строй',
-  'цифров.*контрол.*строитель',
-  'автоматизация проектирования',
-  'роботизация строительств',
-  '3D-печать.*строитель', '3D-печат.*здан',
-  'дронов.*строительств', 'беспилотник.*строительств',
-  'цифровой надзор', 'цифрового надзора',
-  'импортозамещение.*ПО.*строитель',
-  'BIM-технолог', 'ТИМ-технолог',
-  'ТИМ-ЛИДЕР', 'BIM-ЛИДЕР',
-  'нейросет.*строитель', 'нейросет.*проектирован',
-  'цифровизация строй', 'цифровизации строй',
-  'технологии информационного моделирования',
-  'цифровых решений.*строитель',
-];
-
-export const DATACENTER_KEYWORDS = [
-  'ЦОД', 'дата-центр', 'центр обработки данных',
-  'стойк', 'colocation', 'размещен.*сервер',
-  'вычислительн.*мощност', 'GPU-ферм', 'майнинг',
-  'дата-центров', 'центр.*хранен.*данных',
-  'облачн.*провайдер', 'облачн.*инфраструктур',
-  'серверн.*ферм', 'модульн.*ЦОД', 'контейнерн.*ЦОД',
-  'энергоснабжен.*ЦОД', 'охлажден.*ЦОД',
-  'резервн.*питани.*ЦОД', 'ИБП.*ЦОД',
-  'инженерн.*инфраструктур.*ЦОД', 'строительств.*ЦОД',
-];
-
-export function matchesDomain(text: string, keywords: string[]): boolean {
-  const lower = (text || '').toLowerCase().replace(/\s+/g, ' ');
-  for (const kw of keywords) {
-    if (kw.includes('.*')) {
-      const p = kw.replace(/\.\*/g, '.*').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp(p, 'i').test(lower)) return true;
-    } else if (lower.includes(kw.toLowerCase())) {
-      return true;
-    }
-  }
-  return false;
-}
-
-export function filterArticlesByDomain(articles: any[], domain: string): any[] {
-  const keywords = domain === 'energy' ? ENERGY_KEYWORDS
-    : domain === 'digital' ? DIGITAL_KEYWORDS
-    : DATACENTER_KEYWORDS;
-  return articles.filter(a =>
-    matchesDomain(a.title || '', keywords) ||
-    matchesDomain((a.bodyText || '').slice(0, 3000), keywords)
-  );
 }
 
 // ==================== Системные промпты ====================
@@ -335,20 +264,14 @@ router.post('/analytics/generate', async (req: Request, res: Response) => {
     }
   }
 
-  // Загружаем статьи
-  const { articles } = readArticles(undefined, daysBack, 1000, 0);
+  // Загружаем статьи через классификацию (SQL) вместо keyword-фильтрации
+  const { articles } = readArticlesByDomain(domain as ArticleDomain, daysBack, 500, 0);
   if (articles.length === 0) {
-    res.json({ jobId: '', message: 'Нет статей за выбранный период. Запустите парсинг.' });
-    return;
-  }
-
-  // Фильтруем по домену
-  const relevant = filterArticlesByDomain(articles, domain);
-  if (relevant.length === 0) {
     res.json({ jobId: '', message: `Нет статей по тематике «${domainLabel}» за выбранный период.` });
     return;
   }
 
+  const relevant = articles;
   const jobId = createJob(domain, 3);
   res.json({ jobId, domain, total: relevant.length, message: `Генерация отчёта запущена (${relevant.length} статей)` });
 
@@ -434,7 +357,7 @@ router.get('/analytics/status', (req: Request, res: Response) => {
 
 // GET /api/analytics/reports/:domain — история отчётов по домену
 router.get('/analytics/reports/:domain', (req: Request, res: Response) => {
-  const { domain } = req.params;
+  const domain = req.params.domain as string;
   if (!['energy', 'digital', 'datacenters'].includes(domain)) {
     res.status(400).json({ error: 'domain должен быть "energy", "digital" или "datacenters"' });
     return;
@@ -445,7 +368,7 @@ router.get('/analytics/reports/:domain', (req: Request, res: Response) => {
 
 // GET /api/analytics/reports/:domain/latest — последний отчёт
 router.get('/analytics/reports/:domain/latest', (req: Request, res: Response) => {
-  const { domain } = req.params;
+  const domain = req.params.domain as string;
   if (!['energy', 'digital', 'datacenters'].includes(domain)) {
     res.status(400).json({ error: 'domain должен быть "energy", "digital" или "datacenters"' });
     return;
@@ -456,24 +379,55 @@ router.get('/analytics/reports/:domain/latest', (req: Request, res: Response) =>
 
 // GET /api/analytics/relevance/:domain — проверка наличия статей по домену
 router.get('/analytics/relevance/:domain', (req: Request, res: Response) => {
-  const { domain } = req.params;
+  const domain = req.params.domain as string;
   if (!['energy', 'digital', 'datacenters'].includes(domain)) {
     res.status(400).json({ error: 'domain должен быть "energy", "digital" или "datacenters"' });
     return;
   }
 
   const daysBack = parseInt(req.query.days as string, 10) || 30;
-  const { articles } = readArticles(undefined, daysBack, 1000, 0);
-  const relevant = filterArticlesByDomain(articles, domain);
-  const totalArticles = articles.length;
+  const { total, articles } = readArticlesByDomain(domain as ArticleDomain, daysBack, 1000, 0);
 
   res.json({
     domain,
     daysBack,
-    totalArticles,
-    relevantCount: relevant.length,
-    hasData: relevant.length > 0,
+    totalArticles: total,
+    relevantCount: articles.length,
+    hasData: articles.length > 0,
   });
+});
+
+// ==================== Classification endpoints ====================
+
+import { classifyUnclassifiedArticles, ClassifyResult } from '../classifier.js';
+
+// POST /api/classify — ручной запуск AI-классификации
+router.post('/classify', async (req: Request, res: Response) => {
+  try {
+    getApiKey();
+  } catch (e: any) { res.status(500).json({ error: e.message }); return; }
+
+  const daysBack = req.body.daysBack ? parseInt(req.body.daysBack, 10) : undefined;
+
+  try {
+    const result: ClassifyResult = await classifyUnclassifiedArticles(daysBack);
+    res.json({
+      ok: true,
+      ...result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/classify/status — статистика классификации
+router.get('/classify/status', (_req: Request, res: Response) => {
+  try {
+    const stats = getClassificationStats();
+    res.json({ ok: true, stats });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

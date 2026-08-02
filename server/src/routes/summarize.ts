@@ -7,7 +7,10 @@ import { readArticles } from '../db.js';
 import { validateInt, validateStringArray } from '../validation.js';
 
 const router = Router();
-const DEEPSEEK_API = 'https://api.deepseek.com/chat/completions';
+const DEEPSEEK_API = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/chat/completions';
+
+/** Модель для AI-сводок */
+const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'deepseek-chat';
 
 // ==================== Промпт ====================
 
@@ -35,7 +38,7 @@ async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens:
       signal: controller.signal,
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: ANALYSIS_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },

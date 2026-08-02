@@ -2,6 +2,9 @@
 // Общие типы для парсера строительных новостей
 // ============================================================
 
+/** Домены классификации статей */
+export type ArticleDomain = 'energy' | 'digital' | 'datacenters';
+
 /** Единая модель статьи после парсинга */
 export interface Article {
   id: string;
@@ -15,6 +18,7 @@ export interface Article {
   summary: string | null;
   imageUrl: string | null;
   tags: string[];
+  classification: ArticleDomain[]; // AI-классификация: [] = не классифицирована
   fetchedAt: string;     // ISO 8601 — когда спарсили
 }
 

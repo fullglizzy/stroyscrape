@@ -171,6 +171,46 @@ const ALL_SOURCES: SourceConfig[] = [
       rssUrl: 'https://www.comnews.ru/rss',
       requestDelay: 500,
     },
+    {
+      id: '3dnews',
+      name: '3DNews — Hardware и IT',
+      baseUrl: 'https://3dnews.ru',
+      method: 'rss',
+      rssUrl: 'https://3dnews.ru/news/rss',
+      requestDelay: 500,
+    },
+    {
+      id: 'ixbt',
+      name: 'iXBT — IT и серверы',
+      baseUrl: 'https://www.ixbt.com',
+      method: 'rss',
+      rssUrl: 'https://www.ixbt.com/export/news.rss',
+      requestDelay: 500,
+    },
+    {
+      id: 'spbit',
+      name: 'SPBIT — ИТ-бизнес и ЦОД',
+      baseUrl: 'https://spbit.ru',
+      method: 'rss',
+      rssUrl: 'https://spbit.ru/rss/',
+      requestDelay: 500,
+    },
+    {
+      id: 'itworld',
+      name: 'IT World — ИТ-новости',
+      baseUrl: 'https://www.it-world.ru',
+      method: 'rss',
+      rssUrl: 'https://www.it-world.ru/rss/',
+      requestDelay: 500,
+    },
+    {
+      id: 'dtf',
+      name: 'DTF — ИТ и технологии',
+      baseUrl: 'https://dtf.ru',
+      method: 'rss',
+      rssUrl: 'https://dtf.ru/rss/all',
+      requestDelay: 500,
+    },
   ];
 
 /** ID источников, отключённых через env SOURCES_DISABLED */

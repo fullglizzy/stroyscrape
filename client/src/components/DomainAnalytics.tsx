@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Zap, Cpu, Building2, Loader2, ChevronDown, ChevronUp, Clock, FileText,
   Newspaper, TrendingUp, Lightbulb, Ban, Target, Wrench, CheckCircle2, Copy,
+  RefreshCw,
 } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 import InfoTip from './InfoTip';
@@ -103,6 +104,7 @@ export default function DomainAnalytics({ sources, onNavigate }: Props) {
   const [report, setReport] = useState<Report | null>(null);
   const [history, setHistory] = useState<Report[]>([]);
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const toast = useToast();
@@ -131,6 +133,44 @@ export default function DomainAnalytics({ sources, onNavigate }: Props) {
       const d = await r.json();
       setHistory(d.reports || []);
     } catch { /* ignore */ }
+  };
+
+  const generateReport = async () => {
+    setGenerating(true);
+    try {
+      const r = await fetch('/api/analytics/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain, daysBack: 7 }),
+      });
+      const d = await r.json();
+      if (!d.jobId) {
+        toast.toast('info', d.message || 'Генерация запущена');
+        setGenerating(false);
+        return;
+      }
+      // Poll job status
+      for (let i = 0; i < 60; i++) {
+        await new Promise(res => setTimeout(res, 3000));
+        const statusR = await fetch(`/api/analytics/status?jobId=${encodeURIComponent(d.jobId)}`);
+        const statusD = await statusR.json();
+        const job = statusD.job;
+        if (!job || job.status === 'done') {
+          toast.success('Отчёт готов!');
+          break;
+        }
+        if (job.status === 'error') {
+          toast.error(job.error || 'Ошибка генерации');
+          break;
+        }
+      }
+      await loadLatestReport();
+      await loadHistory();
+    } catch (e: any) {
+      toast.error(e.message || 'Не удалось запустить генерацию');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const parseSections = (content: string): { title: string; body: string }[] => {
@@ -195,6 +235,19 @@ export default function DomainAnalytics({ sources, onNavigate }: Props) {
               Отчёт за сегодня готов
             </span>
           )}
+          {!todayReport && totalArticles > 0 && (
+            <button onClick={generateReport} disabled={generating}
+              className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all"
+              style={{
+                background: generating ? 'var(--color-bg)' : 'var(--color-primary)',
+                color: generating ? 'var(--color-text-muted)' : 'white',
+                cursor: generating ? 'not-allowed' : 'pointer',
+              }}>
+              {generating
+                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Генерация...</>
+                : <><RefreshCw className="w-3.5 h-3.5" /> Сгенерировать отчёт</>}
+            </button>
+          )}
           {report && (
             <button onClick={handleCopy}
               className="btn-ghost text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-lg"
@@ -250,10 +303,16 @@ export default function DomainAnalytics({ sources, onNavigate }: Props) {
               <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--color-text)' }}>
                 {domains[domain].label}: отчёт пока не готов
               </h3>
-              <p className="text-sm max-w-md mx-auto" style={{ color: 'var(--color-text-secondary)' }}>
+              <p className="text-sm max-w-md mx-auto mb-4" style={{ color: 'var(--color-text-secondary)' }}>
                 Отчёты генерируются автоматически каждый день в <strong style={{ color: 'var(--color-text)' }}>8:00 МСК</strong>.
-                <br />Заходите позже — все три отчёта будут готовы.
+                <br />Или запустите генерацию вручную прямо сейчас.
               </p>
+              <button onClick={generateReport} disabled={generating}
+                className="btn text-sm" style={{ background: 'var(--color-primary)', color: 'white' }}>
+                {generating
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Генерация...</>
+                  : <><RefreshCw className="w-4 h-4" /> Сгенерировать сейчас</>}
+              </button>
             </>
           )}
         </div>

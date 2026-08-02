@@ -6,6 +6,7 @@ import { Article, ScrapeError, ScrapeStatus, ScraperResult } from '../types.js';
 import { SOURCES } from './config.js';
 import { writeArticles, writeStatus, writeErrors } from '../db.js';
 import { BaseScraper } from './base.js';
+import { classifyUnclassifiedArticles } from '../classifier.js';
 
 import { StroygazScraper } from './sources/stroygaz.js';
 import { RbcRealtyScraper } from './sources/rbc-realty.js';
@@ -43,7 +44,7 @@ function createScraper(config: (typeof SOURCES)[number]): BaseScraper {
     case 'minstroyrf': return new MinstroyrfScraper(config);
     case 'ancb': return new AncbScraper(config);
     case 'mos_stroinadzor': return new MosStroinadzorScraper(config);
-    case 'cnews': case 'servernews': case 'comnews': return new GenericRssScraper(config);
+    case 'cnews': case 'servernews': case 'comnews': case '3dnews': case 'ixbt': case 'spbit': case 'itworld': case 'dtf': return new GenericRssScraper(config);
     default: throw new Error(`Unknown source: ${config.id}`);
   }
 }
@@ -125,9 +126,25 @@ export async function runScrape(daysBack: number = 7, sourceId?: string): Promis
   }
 
   // Запись в БД
+  let totalWritten = 0;
   for (const r of results) {
-    if (r.articles.length > 0) writeArticles(r.articles);
+    if (r.articles.length > 0) {
+      const written = writeArticles(r.articles);
+      totalWritten += written;
+    }
     if (r.errors.length > 0) writeErrors(r.errors);
+  }
+
+  // AI-классификация новых статей (если есть API-ключ)
+  if (totalWritten > 0 && process.env.DEEPSEEK_API_KEY) {
+    try {
+      status.progress.currentStep = 'AI-классификация новых статей...';
+      writeStatus(status);
+      const classifyResult = await classifyUnclassifiedArticles();
+      console.log(`[classifier] Размечено: ${classifyResult.classified}/${classifyResult.total}, ошибок: ${classifyResult.errors}`);
+    } catch (err: any) {
+      console.error(`[classifier] Ошибка классификации: ${err.message}`);
+    }
   }
 
   // Финальный статус

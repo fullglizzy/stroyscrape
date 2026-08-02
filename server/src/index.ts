@@ -12,10 +12,16 @@ import rateLimit from 'express-rate-limit';
 import scraperRoutes from './routes/scraper.js';
 import summarizeRoutes from './routes/summarize.js';
 import domainAnalyticsRoutes from './routes/domainAnalytics.js';
-import { readStatus, writeStatus, getDb, readArticles, saveAnalyticsReport, getLatestAnalyticsReport } from './db.js';
+import { readStatus, writeStatus, getDb, readArticlesByDomain, saveAnalyticsReport, getLatestAnalyticsReport } from './db.js';
 import { runScrape } from './scraper/index.js';
 import { logger } from './logger.js';
+import { classifyUnclassifiedArticles } from './classifier.js';
+import type { ArticleDomain } from './types.js';
 import cron from 'node-cron';
+
+/** Модель для генерации отчётов (можно deepseek-reasoner для более глубокого анализа) */
+const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'deepseek-chat';
+const DEEPSEEK_API = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/chat/completions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -117,12 +123,13 @@ app.listen(PORT, () => {
 });
 
 async function autoGenerateReports() {
-  const domains = ['energy', 'digital', 'datacenters'] as const;
+  const domains: ArticleDomain[] = ['energy', 'digital', 'datacenters'];
   const domainLabels: Record<string, string> = { energy: 'Энергетика', digital: 'Цифровизация', datacenters: 'Рынок ЦОДов' };
   const daysBack = 7;
   const apiKey = process.env.DEEPSEEK_API_KEY!;
 
-  const { ENERGY_KEYWORDS, DIGITAL_KEYWORDS, DATACENTER_KEYWORDS, matchesDomain, ENERGY_SYSTEM_PROMPT, DIGITAL_SYSTEM_PROMPT, DATACENTER_SYSTEM_PROMPT } = await import('./routes/domainAnalytics.js');
+  // Системные промпты импортируем динамически (нужны только они)
+  const { ENERGY_SYSTEM_PROMPT, DIGITAL_SYSTEM_PROMPT, DATACENTER_SYSTEM_PROMPT } = await import('./routes/domainAnalytics.js');
 
   for (const domain of domains) {
     try {
@@ -132,17 +139,11 @@ async function autoGenerateReports() {
         continue;
       }
 
-      const { articles } = readArticles(undefined, daysBack, 1000, 0);
-      if (articles.length === 0) continue;
+      // Используем классификацию из БД вместо keyword-фильтрации
+      const { articles } = readArticlesByDomain(domain, daysBack, 500, 0);
+      if (articles.length === 0) { logger.info(`[cron] Нет статей «${domainLabels[domain]}»`); continue; }
 
-      const keywords = domain === 'energy' ? ENERGY_KEYWORDS : domain === 'digital' ? DIGITAL_KEYWORDS : DATACENTER_KEYWORDS;
-      const relevant = articles.filter((a: any) =>
-        matchesDomain(a.title || '', keywords) || matchesDomain((a.bodyText || '').slice(0, 3000), keywords)
-      );
-
-      if (relevant.length === 0) { logger.info(`[cron] Нет статей «${domainLabels[domain]}»`); continue; }
-
-      const sorted = [...relevant].sort((a: any, b: any) => b.publishedAt.localeCompare(a.publishedAt));
+      const sorted = [...articles].sort((a: any, b: any) => b.publishedAt.localeCompare(a.publishedAt));
       const articlesText = sorted.map((a: any, i: number) =>
         `${i + 1}. [${a.sourceName}] ${a.publishedAt?.slice(0, 10)} — ${a.title}\n${(a.bodyText || '').slice(0, 600).trim()}`
       ).join('\n\n');
@@ -159,10 +160,10 @@ async function autoGenerateReports() {
 
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), 120_000);
-      const r = await fetch('https://api.deepseek.com/chat/completions', {
+      const r = await fetch(DEEPSEEK_API, {
         method: 'POST', signal: controller.signal,
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 3500, temperature: 0.3 }),
+        body: JSON.stringify({ model: ANALYSIS_MODEL, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 3500, temperature: 0.3 }),
       });
       clearTimeout(t);
       const data = await r.json() as any;
@@ -179,7 +180,7 @@ async function autoGenerateReports() {
 
       const now = new Date();
       saveAnalyticsReport({
-        domain: domain as any,
+        domain: domain,
         title: `${domainLabels[domain]}: отчёт за ${daysBack} дн. (${now.toLocaleDateString('ru-RU')})`,
         content,
         periodStart: new Date(now.getTime() - daysBack * 86400000).toISOString().slice(0, 10),
