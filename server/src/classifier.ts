@@ -7,7 +7,7 @@ import { getUnclassifiedArticles, updateArticleClassification } from './db.js';
 import { ArticleDomain } from './types.js';
 import { logger } from './logger.js';
 
-const DEEPSEEK_API = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/chat/completions';
+const DEEPSEEK_API = (process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com') + '/chat/completions';
 const BATCH_SIZE = 30;          // статей за один запрос
 const MAX_BODY_PREVIEW = 300;   // символов текста для классификации
 const MAX_RETRIES = 3;

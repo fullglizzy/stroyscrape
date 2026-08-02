@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const router = Router();
-const DEEPSEEK_API = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/chat/completions';
+const DEEPSEEK_API = (process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com') + '/chat/completions';
 
 /** Модель для генерации отчётов (можно deepseek-reasoner для более глубокого анализа) */
 const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'deepseek-chat';

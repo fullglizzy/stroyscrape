@@ -21,7 +21,7 @@ import cron from 'node-cron';
 
 /** Модель для генерации отчётов (можно deepseek-reasoner для более глубокого анализа) */
 const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'deepseek-chat';
-const DEEPSEEK_API = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com/chat/completions';
+const DEEPSEEK_API = (process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com') + '/chat/completions';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -16,11 +16,12 @@ type RssItem = {
   contentSnippet: string;
   description: string;
   'yandex:full-text'?: string;
+  'content:encoded'?: string;
   enclosure?: { url: string };
 };
 
 const parser = new Parser<Record<string, unknown>, RssItem>({
-  customFields: { item: ['yandex:full-text'] },
+  customFields: { item: ['yandex:full-text', 'content:encoded'] },
 });
 
 export class GenericRssScraper extends BaseScraper {
@@ -34,8 +35,8 @@ export class GenericRssScraper extends BaseScraper {
         const dateStr = item.pubDate ? parseRussianDate(item.pubDate) : new Date().toISOString();
         if (!this.isWithinDays(dateStr, daysBack)) continue;
 
-        // Полный текст: yandex:full-text > content > description
-        const rawHtml = item['yandex:full-text'] || item.content || item.description || '';
+        // Полный текст: yandex:full-text > content:encoded > content > description
+        const rawHtml = item['yandex:full-text'] || item['content:encoded'] || item.content || item.description || '';
         const bodyText = cleanHtml(rawHtml);
         const summary = item.contentSnippet?.slice(0, 300)?.trim() || null;
 
