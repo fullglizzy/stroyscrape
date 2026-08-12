@@ -3,7 +3,7 @@
 // ============================================================
 
 import { Router, Request, Response } from 'express';
-import { readArticles, readStatus, writeStatus, getSourceStats, readArticleById } from '../db.js';
+import { readArticles, readStatus, writeStatus, getSourceStats, readArticleById, deleteArticlesByDateRange, deleteAllArticles } from '../db.js';
 import { runScrape, stopScrape } from '../scraper/index.js';
 
 const router = Router();
@@ -66,5 +66,51 @@ router.get('/articles/:id', (req: Request, res: Response) => {
 });
 
 router.get('/sources', (_req: Request, res: Response) => res.json(getSourceStats()));
+
+// DELETE /api/articles?from=YYYY-MM-DD&to=YYYY-MM-DD — удалить статьи за период
+router.delete('/articles', (req: Request, res: Response) => {
+  const from = String(req.query.from || '');
+  const to = String(req.query.to || '');
+
+  if (!from || !to) {
+    res.status(400).json({ error: 'Параметры from и to обязательны (формат YYYY-MM-DD)' });
+    return;
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    res.status(400).json({ error: 'Неверный формат дат. Используйте YYYY-MM-DD' });
+    return;
+  }
+
+  if (from > to) {
+    res.status(400).json({ error: 'from не может быть больше to' });
+    return;
+  }
+
+  try {
+    const result = deleteArticlesByDateRange(from, to);
+    res.json({
+      ok: true,
+      message: `Удалено ${result.deleted} статей за период ${from} — ${to}`,
+      ...result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Ошибка удаления статей' });
+  }
+});
+
+// DELETE /api/articles/all — удалить ВСЕ статьи
+router.delete('/articles/all', (_req: Request, res: Response) => {
+  try {
+    const result = deleteAllArticles();
+    res.json({
+      ok: true,
+      message: `Удалены ВСЕ статьи (${result.deleted} шт.)`,
+      ...result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Ошибка удаления статей' });
+  }
+});
 
 export default router;

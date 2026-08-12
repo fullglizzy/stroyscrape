@@ -133,4 +133,29 @@ export const api = {
   /** Последний доменный отчёт */
   getLatestDomainReport: (domain: 'energy' | 'digital' | 'datacenters') =>
     fetchJSON<{ domain: string; report: any | null }>(`/analytics/reports/${domain}/latest`),
+
+  /** Список всех отчётов */
+  getReports: (params?: { domain?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.domain) qs.set('domain', params.domain);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const query = qs.toString();
+    return fetchJSON<{ total: number; reports: any[] }>(`/reports${query ? `?${query}` : ''}`);
+  },
+
+  /** Получить один отчёт */
+  getReport: (id: number) =>
+    fetchJSON<{ report: any }>(`/reports/${id}`),
+
+  /** Удалить отчёт */
+  deleteReport: (id: number) =>
+    fetchJSON<{ ok: boolean; message: string; deleted: any }>(`/reports/${id}`, { method: 'DELETE' }),
+
+  /** Удалить статьи за период */
+  deleteArticlesByDateRange: (from: string, to: string) =>
+    fetchJSON<{ ok: boolean; message: string; deleted: number; sourceBreakdown: Record<string, number> }>(
+      `/articles?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      { method: 'DELETE' }
+    ),
 };

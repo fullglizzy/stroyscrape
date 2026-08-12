@@ -5,13 +5,15 @@
 import { createHash } from 'node:crypto';
 
 /**
- * Парсит русскую дату в ISO 8601.
+ * Парсит дату в ISO 8601.
  * Поддерживает форматы:
  *   "20.07.2026"
  *   "20 июля 2026 14:32"
  *   "20 июл. 2026 г. 14:30"
  *   "20 июля, понедельник" (без года — используется текущий)
  *   "2026-07-20T11:10:00+03:00" (уже ISO)
+ *   "Mon, 20 Jul 2026 16:44:51 +0300" (RFC 2822)
+ *   "Friday, July 31, 2026 at 4:34:00 PM" (англ. long-form)
  */
 export function parseRussianDate(raw: string): string {
   const trimmed = raw.trim();
@@ -78,6 +80,24 @@ export function parseRussianDate(raw: string): string {
     const [, d, monthName, y, hh = '00', mm = '00'] = ruMatch;
     const m = ruMonths[monthName.toLowerCase().replace(/\.$/, '')] || '01';
     return `${y}-${m}-${String(d).padStart(2, '0')}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+03:00`;
+  }
+
+  // Английский long-form с "at": "Friday, July 31, 2026 at 4:34:00 PM"
+  // Проблемный символ U+202F (NARROW NO-BREAK SPACE) перед PM/AM — нормализуем
+  const enLongMatch = trimmed
+    .replace(/ /g, ' ')
+    .match(/^[A-Z][a-z]+,\s+([A-Z][a-z]+)\s+(\d{1,2}),?\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)/i);
+  if (enLongMatch) {
+    const [, monthName, d, y, hh, mm, ss, ampm] = enLongMatch;
+    const enMonths: Record<string, string> = {
+      January:'01', February:'02', March:'03', April:'04', May:'05', June:'06',
+      July:'07', August:'08', September:'09', October:'10', November:'11', December:'12',
+    };
+    const m = enMonths[monthName] || '01';
+    let h = parseInt(hh, 10);
+    if (ampm.toUpperCase() === 'PM' && h < 12) h += 12;
+    if (ampm.toUpperCase() === 'AM' && h === 12) h = 0;
+    return `${y}-${m}-${String(d).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}+03:00`;
   }
 
   // Пробуем нативный парсинг как last resort

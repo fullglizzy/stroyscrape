@@ -12,6 +12,7 @@ import rateLimit from 'express-rate-limit';
 import scraperRoutes from './routes/scraper.js';
 import summarizeRoutes from './routes/summarize.js';
 import domainAnalyticsRoutes from './routes/domainAnalytics.js';
+import reportsRoutes from './routes/reports.js';
 import { readStatus, writeStatus, getDb, readArticlesByDomain, saveAnalyticsReport, getLatestAnalyticsReport } from './db.js';
 import { runScrape } from './scraper/index.js';
 import { logger } from './logger.js';
@@ -60,6 +61,7 @@ app.use('/api', apiLimiter);
 app.use('/api', scraperRoutes);
 app.use('/api', summarizeRoutes);
 app.use('/api', domainAnalyticsRoutes);
+app.use('/api', reportsRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

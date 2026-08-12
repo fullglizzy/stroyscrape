@@ -8,6 +8,7 @@ import Sidebar, { Section } from './components/Sidebar';
 import ScraperPanel from './components/ScraperPanel';
 import ArticleList from './components/ArticleList';
 import DomainAnalytics from './components/DomainAnalytics';
+import ReportsManager from './components/ReportsManager';
 import Overview from './components/Overview';
 import ErrorBoundary from './components/ErrorBoundary';
 import ScrollToTop from './components/ScrollToTop';
@@ -26,7 +27,7 @@ function AppContent() {
 
   // Динамический title
   useEffect(() => {
-    const titles: Record<string, string> = { overview: 'Обзор', news: 'Новости', analytics: 'Аналитика', scraper: 'Парсер' };
+    const titles: Record<string, string> = { overview: 'Обзор', news: 'Новости', analytics: 'Аналитика', scraper: 'Парсер', reports: 'Отчёты' };
     document.title = `СтройПарсер — ${titles[section] || 'Аналитика стройрынка'}`;
   }, [section]);
 
@@ -169,6 +170,12 @@ function AppContent() {
             onStopScrape={handleStopScrape}
             onResetStatus={handleResetStatus}
           />
+        );
+      case 'reports':
+        return (
+          <div className="space-y-4 animate-fade-in">
+            <ReportsManager />
+          </div>
         );
       default:
         return null;

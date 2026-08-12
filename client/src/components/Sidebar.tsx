@@ -3,14 +3,16 @@ import { SourceStats } from '../api';
 import {
   LayoutDashboard, Newspaper, BarChart3,
   Filter, Check, Search, X, HardHat,
+  FolderOpen,
 } from 'lucide-react';
 
-export type Section = 'overview' | 'news' | 'analytics' | 'scraper';
+export type Section = 'overview' | 'news' | 'analytics' | 'scraper' | 'reports';
 
 const NAV_ITEMS: { id: Section; icon: React.ReactNode; label: string }[] = [
   { id: 'overview',   icon: <LayoutDashboard className="w-4 h-4" />, label: 'Обзор' },
   { id: 'news',       icon: <Newspaper className="w-4 h-4" />,       label: 'Новости' },
   { id: 'analytics',  icon: <BarChart3 className="w-4 h-4" />,       label: 'Аналитика' },
+  { id: 'reports',    icon: <FolderOpen className="w-4 h-4" />,      label: 'Отчёты' },
 ];
 
 interface Props {

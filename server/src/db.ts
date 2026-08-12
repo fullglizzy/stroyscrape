@@ -267,6 +267,39 @@ export function removeArticlesBySource(source: string): number {
   return result.changes;
 }
 
+/** Удалить статьи за указанный диапазон дат (published_at) */
+export function deleteArticlesByDateRange(from: string, to: string): { deleted: number; sourceBreakdown: Record<string, number> } {
+  const d = getDb();
+
+  // Сначала считаем разбивку по источникам для отчёта
+  const breakdown = d.prepare(`
+    SELECT source, source_name, COUNT(*) as cnt
+    FROM articles
+    WHERE published_at >= ? AND published_at <= ?
+    GROUP BY source
+    ORDER BY cnt DESC
+  `).all(from, to) as any[];
+
+  const sourceBreakdown: Record<string, number> = {};
+  for (const r of breakdown) {
+    sourceBreakdown[r.source] = r.cnt;
+  }
+
+  const result = d.prepare(
+    'DELETE FROM articles WHERE published_at >= ? AND published_at <= ?'
+  ).run(from, to);
+
+  return { deleted: result.changes, sourceBreakdown };
+}
+
+/** Удалить ВСЕ статьи */
+export function deleteAllArticles(): { deleted: number } {
+  const d = getDb();
+  const total = (d.prepare('SELECT COUNT(*) as cnt FROM articles').get() as any)?.cnt || 0;
+  d.prepare('DELETE FROM articles').run();
+  return { deleted: total };
+}
+
 // ========== Scrape Status ==========
 
 export function readStatus(): ScrapeStatus {
@@ -614,4 +647,51 @@ export function getAnalyticsReportHistory(domain: string, limit: number = 20): A
     articleCount: r.article_count,
     createdAt: r.created_at,
   }));
+}
+
+/** Получить один аналитический отчёт по ID */
+export function getAnalyticsReportById(id: number): AnalyticsReport | null {
+  const d = getDb();
+  const row = d.prepare('SELECT * FROM analytics_reports WHERE id = ?').get(id) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    domain: row.domain,
+    title: row.title,
+    content: row.content,
+    periodStart: row.period_start,
+    periodEnd: row.period_end,
+    previousReportId: row.previous_report_id,
+    articleCount: row.article_count,
+    createdAt: row.created_at,
+  };
+}
+
+/** Удалить аналитический отчёт по ID */
+export function deleteAnalyticsReport(id: number): boolean {
+  const d = getDb();
+  const result = d.prepare('DELETE FROM analytics_reports WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+/** Получить все аналитические отчёты (с пагинацией) */
+export function getAllAnalyticsReports(limit: number = 50, offset: number = 0): { total: number; reports: AnalyticsReport[] } {
+  const d = getDb();
+  const countRow = d.prepare('SELECT COUNT(*) as cnt FROM analytics_reports').get() as any;
+  const total = countRow?.cnt || 0;
+  const rows = d.prepare(
+    'SELECT * FROM analytics_reports ORDER BY created_at DESC LIMIT ? OFFSET ?'
+  ).all(limit, offset) as any[];
+  const reports = rows.map((r: any) => ({
+    id: r.id,
+    domain: r.domain,
+    title: r.title,
+    content: r.content,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    previousReportId: r.previous_report_id,
+    articleCount: r.article_count,
+    createdAt: r.created_at,
+  }));
+  return { total, reports };
 }

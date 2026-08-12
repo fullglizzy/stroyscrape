@@ -9,7 +9,7 @@ export default defineConfig({
     host: '0.0.0.0',
     allowedHosts: ['.tuna.am', 'localhost'],
     proxy: {
-      '/api': 'http://localhost:3001',
+      '/api': 'http://localhost:3000',
     },
   },
 });
