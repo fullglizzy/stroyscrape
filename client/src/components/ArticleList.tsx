@@ -28,19 +28,22 @@ export default function ArticleList({ selectedSources }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>('date');
   const [dateFilter, setDateFilter] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  // Оффсет храним в ref, а не читаем из state — иначе useCallback
+  // запоминает articles первого рендера ([]), и offset всегда 0
+  const offsetRef = useRef(0);
 
   const fetchArticles = useCallback(async (reset: boolean) => {
     if (abortRef.current) abortRef.current.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    if (reset) setLoading(true);
+    if (reset) { setLoading(true); offsetRef.current = 0; }
     else setLoadingMore(true);
 
     try {
       const params = new URLSearchParams();
       params.set('limit', String(PAGE_SIZE));
-      if (!reset) params.set('offset', String(articles.length));
+      if (!reset) params.set('offset', String(offsetRef.current));
       if (dateFilter > 0) params.set('days', String(dateFilter));
       if (selectedSources.size > 0) params.set('source', Array.from(selectedSources).join(','));
 
@@ -53,8 +56,14 @@ export default function ArticleList({ selectedSources }: Props) {
 
       if (reset) {
         setArticles(data.articles);
+        offsetRef.current = data.articles.length;
       } else {
-        setArticles(prev => [...prev, ...data.articles]);
+        // Страховка от дублей при дозагрузке: не добавляем уже загруженные id
+        setArticles(prev => {
+          const seen = new Set(prev.map(a => a.id));
+          return [...prev, ...data.articles.filter((a: Article) => !seen.has(a.id))];
+        });
+        offsetRef.current += data.articles.length;
       }
       setTotal(data.total);
     } catch (err: any) {
