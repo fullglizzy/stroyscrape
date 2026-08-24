@@ -95,11 +95,11 @@ function getApiKey(): string {
   return key;
 }
 
-async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens: number = 3000): Promise<string> {
+async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens: number = 16000): Promise<string> {
   const apiKey = getApiKey();
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 90_000);
+  const timeout = setTimeout(() => controller.abort(), 300_000);
 
   try {
     const res = await fetch(DEEPSEEK_API, {
@@ -122,7 +122,7 @@ async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens:
     return data.choices?.[0]?.message?.content || '';
   } catch (err: any) {
     clearTimeout(timeout);
-    if (err.name === 'AbortError') throw new Error('DeepSeek API: превышен таймаут (90с)');
+    if (err.name === 'AbortError') throw new Error('DeepSeek API: превышен таймаут (300с)');
     throw err;
   }
 }
@@ -333,7 +333,12 @@ router.post('/analytics/generate', async (req: Request, res: Response) => {
       const systemPrompt = domain === 'energy' ? ENERGY_SYSTEM_PROMPT : domain === 'digital' ? DIGITAL_SYSTEM_PROMPT : DATACENTER_SYSTEM_PROMPT;
       const userPrompt = `Проанализируй следующие новости по тематике «${domainLabel}» за ${daysBack} дней (${sorted.length} статей):\n\n${articlesText.slice(0, 20000)}${prevContext}`;
 
-      const reportContent = await callDeepSeek(systemPrompt, userPrompt, 3500);
+      const reportContent = await callDeepSeek(systemPrompt, userPrompt, 16000);
+
+      // Reasoning-модель может вернуть пустой/обрезанный ответ — не сохраняем пустышку
+      if (reportContent.trim().length < 500) {
+        throw new Error(`Модель вернула слишком короткий отчёт (${reportContent.length} симв.) — вероятно, не хватило max_tokens`);
+      }
 
       // Заменяем [N] на кликабельные ссылки прямо в тексте
       const withInlineLinks = reportContent.replace(/\[(\d+)\]/g, (fullMatch: string, num: string) => {

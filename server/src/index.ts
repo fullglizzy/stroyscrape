@@ -161,15 +161,20 @@ async function autoGenerateReports() {
       logger.info(`[cron] Генерация «${domainLabels[domain]}» (${sorted.length} ст.)...`);
 
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 120_000);
+      const t = setTimeout(() => controller.abort(), 300_000);
       const r = await fetch(DEEPSEEK_API, {
         method: 'POST', signal: controller.signal,
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: ANALYSIS_MODEL, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 3500, temperature: 0.3 }),
+        body: JSON.stringify({ model: ANALYSIS_MODEL, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], max_tokens: 16000, temperature: 0.3 }),
       });
       clearTimeout(t);
       const data = await r.json() as any;
       let content = data.choices?.[0]?.message?.content || '';
+
+      // Reasoning-модель может вернуть пустой/обрезанный ответ — не сохраняем пустышку
+      if (content.trim().length < 500) {
+        throw new Error(`Модель вернула слишком короткий отчёт (${content.length} симв.) — вероятно, не хватило max_tokens`);
+      }
 
       // inline links + sources block
       content = content.replace(/\[(\d+)\]/g, (full: string, num: string) => {

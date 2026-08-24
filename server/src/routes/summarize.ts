@@ -38,11 +38,11 @@ function getApiKey(): string {
   return key;
 }
 
-async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens: number = 2000): Promise<string> {
+async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens: number = 8000): Promise<string> {
   const apiKey = getApiKey();
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
+  const timeout = setTimeout(() => controller.abort(), 180_000);
 
   try {
     const res = await fetch(DEEPSEEK_API, {
@@ -65,7 +65,7 @@ async function callDeepSeek(systemPrompt: string, userPrompt: string, maxTokens:
     return data.choices?.[0]?.message?.content || '';
   } catch (err: any) {
     clearTimeout(timeout);
-    if (err.name === 'AbortError') throw new Error('DeepSeek API: превышен таймаут (60с)');
+    if (err.name === 'AbortError') throw new Error('DeepSeek API: превышен таймаут (180с)');
     throw err;
   }
 }
@@ -103,6 +103,10 @@ router.post('/summarize/sources', async (req: Request, res: Response) => {
       const text = group.articles.map((a: any, i: number) => `${i + 1}. ${a.title}\n${a.bodyText.slice(0, 600).trim()}`).join('\n\n');
       const prompt = `Сводка по "${group.name}" за ${daysBack} дн. (${group.articles.length} новостей). Объём: до ${maxLength} слов.\n\n${text.slice(0, 10000)}`;
       const summary = await callDeepSeek(SUMMARIZE_SOURCES_PROMPT, prompt);
+      // Reasoning-модель может вернуть пустой/обрезанный ответ — помечаем как ошибку
+      if (summary.trim().length < 100) {
+        throw new Error(`Модель вернула пустую сводку (${summary.length} симв.)`);
+      }
       summaries.push({ sourceId, sourceName: group.name, articleCount: group.articles.length, dateRange: { from: '', to: '' }, summary });
     } catch (err: any) {
       summaries.push({ sourceId, sourceName: group.name, articleCount: group.articles.length, dateRange: { from: '', to: '' }, summary: '', error: err.message });
