@@ -3,7 +3,7 @@
 // Заменяет эвристику на ключевых словах
 // ============================================================
 
-import { getUnclassifiedArticles, updateArticleClassification } from './db.js';
+import { getUnclassifiedArticles, updateArticleClassification, deleteArticlesByIds } from './db.js';
 import { ArticleDomain } from './types.js';
 import { logger } from './logger.js';
 
@@ -168,6 +168,7 @@ export interface ClassifyResult {
   total: number;         // всего обработано
   classified: number;    // получили хотя бы один домен
   errors: number;        // ошибок API
+  deleted: number;       // удалено мусорных (обработаны, но без доменов)
   details: { id: string; domains: ArticleDomain[] }[];
 }
 
@@ -181,12 +182,15 @@ export async function classifyUnclassifiedArticles(daysBack?: number): Promise<C
 
   if (unclassified.length === 0) {
     logger.info('[classifier] Нет неклассифицированных статей');
-    return { total: 0, classified: 0, errors: 0, details: [] };
+    return { total: 0, classified: 0, errors: 0, deleted: 0, details: [] };
   }
 
   logger.info(`[classifier] Найдено ${unclassified.length} неклассифицированных статей`);
 
-  const result: ClassifyResult = { total: unclassified.length, classified: 0, errors: 0, details: [] };
+  const result: ClassifyResult = { total: unclassified.length, classified: 0, errors: 0, deleted: 0, details: [] };
+
+  // id статей из УСПЕШНО обработанных батчей (из упавших не удаляем — останутся на ретрай)
+  const processedIds: string[] = [];
 
   // Обрабатываем батчами
   for (let i = 0; i < unclassified.length; i += BATCH_SIZE) {
@@ -197,6 +201,7 @@ export async function classifyUnclassifiedArticles(daysBack?: number): Promise<C
 
     try {
       const classified = await callDeepSeekClassify(apiKey, batch);
+      processedIds.push(...batch.map(a => a.id));
 
       // Обновляем БД
       let batchClassified = 0;
@@ -207,8 +212,7 @@ export async function classifyUnclassifiedArticles(daysBack?: number): Promise<C
           result.details.push({ id: article.id, domains });
           batchClassified++;
         } else {
-          // Статья не подошла ни под один домен — помечаем как просмотренную (оставляем [])
-          // Ничего не делаем — classification уже '[]' по умолчанию
+          // Статья не подошла ни под один домен — будет удалена как мусор после цикла
         }
       }
 
@@ -226,6 +230,17 @@ export async function classifyUnclassifiedArticles(daysBack?: number): Promise<C
     }
   }
 
-  logger.info(`[classifier] Готово: ${result.classified}/${result.total} размечено, ${result.errors} ошибок`);
+  // Удаляем обработанные статьи без доменов (мусор): только из успешных батчей,
+  // неполученные из-за ошибок API остаются '[]' и уйдут при следующем запуске
+  if (processedIds.length > 0) {
+    const classifiedIds = new Set(result.details.map(d => d.id));
+    const junkIds = processedIds.filter(id => !classifiedIds.has(id));
+    if (junkIds.length > 0) {
+      result.deleted = deleteArticlesByIds(junkIds);
+      logger.info(`[classifier] Удалено мусорных статей: ${result.deleted}/${junkIds.length}`);
+    }
+  }
+
+  logger.info(`[classifier] Готово: ${result.classified}/${result.total} размечено, удалено мусора: ${result.deleted}, ошибок: ${result.errors}`);
   return result;
 }

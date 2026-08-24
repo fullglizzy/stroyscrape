@@ -267,6 +267,23 @@ export function removeArticlesBySource(source: string): number {
   return result.changes;
 }
 
+/** Удалить статьи по списку id (мусорные — не получившие классификацию) */
+export function deleteArticlesByIds(ids: string[]): number {
+  const d = getDb();
+  // Чистим зависимые метрики (FK на articles), чтобы DELETE не упал
+  const delMetrics = d.prepare('DELETE FROM metrics WHERE article_id = ?');
+  const del = d.prepare('DELETE FROM articles WHERE id = ?');
+  const delMany = d.transaction((items: string[]) => {
+    let removed = 0;
+    for (const id of items) {
+      delMetrics.run(id);
+      if (del.run(id).changes > 0) removed++;
+    }
+    return removed;
+  });
+  return delMany(ids);
+}
+
 /** Удалить статьи за указанный диапазон дат (published_at) */
 export function deleteArticlesByDateRange(from: string, to: string): { deleted: number; sourceBreakdown: Record<string, number> } {
   const d = getDb();

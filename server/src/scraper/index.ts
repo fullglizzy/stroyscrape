@@ -141,7 +141,7 @@ export async function runScrape(daysBack: number = 7, sourceId?: string): Promis
       status.progress.currentStep = 'AI-классификация новых статей...';
       writeStatus(status);
       const classifyResult = await classifyUnclassifiedArticles();
-      console.log(`[classifier] Размечено: ${classifyResult.classified}/${classifyResult.total}, ошибок: ${classifyResult.errors}`);
+      console.log(`[classifier] Размечено: ${classifyResult.classified}/${classifyResult.total}, удалено мусора: ${classifyResult.deleted}, ошибок: ${classifyResult.errors}`);
     } catch (err: any) {
       console.error(`[classifier] Ошибка классификации: ${err.message}`);
     }
